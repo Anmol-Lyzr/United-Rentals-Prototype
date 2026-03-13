@@ -94,7 +94,7 @@ export function SuggestionsPanel({
             {s && !s.off_topic && (
               <>
                 {/* 1. Read this out — customer-facing line the agent says aloud; "Say this" sends as agent (audio + text) */}
-                {s.suggested_response && (
+                {/* {s.suggested_response && (
                   <div className="rounded-xl bg-violet-50 border border-violet-200 p-3.5">
                     <div className="flex items-center justify-between gap-2 mb-2">
                       <div className="flex items-center gap-1.5">
@@ -118,7 +118,7 @@ export function SuggestionsPanel({
                       &ldquo;{s.suggested_response}&rdquo;
                     </p>
                   </div>
-                )}
+                )} */}
 
                 {/* 2. Response suggestion — internal steps / notes (whisper) */}
                 {s.whisper_response && (
@@ -126,7 +126,7 @@ export function SuggestionsPanel({
                     <div className="flex items-center gap-1.5 mb-2">
                       <MessageSquare className="size-4 text-primary shrink-0" />
                       <span className="text-xs font-semibold text-primary uppercase tracking-wide">
-                        Response suggestion
+                        Suggestion
                       </span>
                     </div>
                     <p className="text-[13px] leading-relaxed text-gray-800 break-words whitespace-pre-line">

@@ -451,9 +451,8 @@ export default function CoPilotPage() {
                 isActive={callStatus === "active"}
               />
 
-              {callStatus === "active" && (
+              {/* {callStatus === "active" && (
                 <div className="shrink-0 border-t border-gray-200 bg-slate-50 p-3">
-                  {/* Turn-based: show only agent input when it's agent's turn, else customer input */}
                   {agentSpeech.isWaitingForAgent ? (
                     <div className="space-y-2">
                       <p className="text-xs font-medium text-gray-600">
@@ -533,7 +532,7 @@ export default function CoPilotPage() {
                     </div>
                   )}
                 </div>
-              )}
+              )} */}
 
               {callStatus === "ended" && (
                 <div className="shrink-0 px-4 py-3 border-t border-gray-200 bg-slate-50 flex flex-wrap items-center gap-2">

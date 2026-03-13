@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import type { CallRecord } from "@/types/call-records";
 import { getTicketsForPersona, type Ticket } from "@/mock/customer-tickets";
 
@@ -60,7 +61,14 @@ export function CustomerInfoCard({
     .map((part) => part[0]?.toUpperCase())
     .join("");
 
-  const tickets = getTicketsForPersona(personaLabel) as Ticket[];
+  const [tickets, setTickets] = useState<Ticket[]>([]);
+
+  useEffect(() => {
+    void (async () => {
+      const data = await getTicketsForPersona(personaLabel);
+      setTickets(data);
+    })();
+  }, [personaLabel]);
 
   return (
     <section className="px-4 pt-4 pb-4 border-b border-[#e5e7eb] bg-gradient-to-b from-white via-[#f5f3ff] to-[#eef2ff]">
