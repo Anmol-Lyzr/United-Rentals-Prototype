@@ -663,7 +663,7 @@ export default function CoPilotPage() {
                 <button
                   type="button"
                   onClick={() => setIsRightPanelCollapsed(false)}
-                  className="h-full w-6 flex items-center justify-center bg-white text-[11px] text-slate-500 border border-slate-200 rounded-l-none rounded-r-xl shadow-[0_10px_30px_rgba(148,163,184,0.4)]"
+                  className="h-full w-6 flex items-center justify-center bg-[#6366f1] text-[11px] text-white border border-[#6366f1] rounded-l-none rounded-r-xl shadow-[0_10px_30px_rgba(79,70,229,0.6)]"
                   aria-label="Expand assistant panel"
                 >
                   &lt;
@@ -678,7 +678,7 @@ export default function CoPilotPage() {
                         <button
                           type="button"
                           onClick={() => setIsRightPanelCollapsed(true)}
-                          className="inline-flex items-center justify-center rounded-lg border border-slate-200 bg-white px-2 py-1 text-[11px] text-slate-600 shadow-sm hover:bg-slate-50"
+                          className="inline-flex items-center justify-center rounded-lg border border-[#6366f1] bg-[#6366f1] px-2 py-1 text-[11px] text-white shadow-sm hover:bg-[#4f46e5]"
                           aria-label="Collapse assistant panel"
                         >
                           &gt;

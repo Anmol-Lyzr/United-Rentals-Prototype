@@ -102,7 +102,7 @@ export function CallControls({
         {callStatus === "ringing" || callStatus === "idle" || callStatus === "ended" ? (
           <Button
             onClick={callStatus === "ended" ? onNewCall : onStartCall}
-            className="rounded-full bg-primary text-white shadow-none hover:bg-primary/90 h-9 px-4 gap-2"
+            className="rounded-full bg-[#6366f1] text-white shadow-none hover:bg-[#4f46e5] h-9 px-4 gap-2"
           >
             <Phone className="size-4" />
             <span className="text-sm font-semibold">
@@ -110,7 +110,10 @@ export function CallControls({
             </span>
           </Button>
         ) : callStatus === "connecting" ? (
-          <Button disabled className="rounded-full shadow-none h-9 px-4 gap-2">
+          <Button
+            disabled
+            className="rounded-full shadow-none h-9 px-4 gap-2 bg-[#e5e7eb] text-slate-600"
+          >
             <Loader2 className="size-4 animate-spin" />
             <span className="text-sm font-semibold">Connecting…</span>
           </Button>
