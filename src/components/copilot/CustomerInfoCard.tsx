@@ -3,6 +3,16 @@
 import { useEffect, useState } from "react";
 import type { CallRecord } from "@/types/call-records";
 import { getTicketsForPersona, type Ticket } from "@/mock/customer-tickets";
+import {
+  getCustomerInfoForPersona,
+  type PersonaCustomerProfile,
+} from "@/mock/customer-personas";
+
+type AiCustomerInsights = {
+  nextBestAction?: string;
+  sentiment?: string;
+  crossSellOpportunity?: string;
+};
 
 type CustomerInfo = {
   name: string;
@@ -16,7 +26,24 @@ type CustomerInfo = {
   personaLabel?: string;
 };
 
-function buildCustomerFromRecord(record?: CallRecord | null): CustomerInfo {
+function buildCustomerFromRecord(
+  record?: CallRecord | null,
+  personaOverride?: PersonaCustomerProfile | null
+): CustomerInfo {
+  if (personaOverride) {
+    return {
+      name: personaOverride.name,
+      account: personaOverride.account ?? null,
+      email: personaOverride.email ?? null,
+      phone: personaOverride.phone ?? null,
+      location: personaOverride.location ?? null,
+      memberSince: personaOverride.memberSince ?? null,
+      tier: personaOverride.tier ?? "Premium",
+      status: personaOverride.status ?? "active",
+      personaLabel: personaOverride.personaLabel,
+    };
+  }
+
   if (!record) {
     return {
       name: "Demo Customer",
@@ -31,7 +58,8 @@ function buildCustomerFromRecord(record?: CallRecord | null): CustomerInfo {
   }
 
   const meta = record.call_summary;
-  const name = meta.customer_name || record.account_name || "United Rentals Customer";
+  const name =
+    meta.customer_name || record.account_name || "United Rentals Customer";
   const account = meta.customer_account ?? record.account_id ?? null;
 
   return {
@@ -49,11 +77,16 @@ function buildCustomerFromRecord(record?: CallRecord | null): CustomerInfo {
 export function CustomerInfoCard({
   record,
   personaLabel,
+  aiInsights,
 }: {
   record?: CallRecord | null;
   personaLabel?: string;
+  aiInsights?: AiCustomerInsights | null;
 }) {
-  const customer = buildCustomerFromRecord(record);
+  const personaCustomer = !record
+    ? getCustomerInfoForPersona(personaLabel)
+    : null;
+  const customer = buildCustomerFromRecord(record, personaCustomer);
   const initials = customer.name
     .split(" ")
     .filter(Boolean)
@@ -81,12 +114,14 @@ export function CustomerInfoCard({
           <p className="text-sm font-semibold text-slate-900 truncate">
             {customer.name}
           </p>
-          <p className="text-[11px] text-slate-500 truncate">
-            {personaLabel || "ISR Co-Pilot demo persona"}
-          </p>
+          {customer.account && (
+            <p className="text-[11px] text-slate-500 truncate">
+              Account: {customer.account}
+            </p>
+          )}
         </div>
         <span className="ml-auto inline-flex items-center rounded-full border border-emerald-500/40 bg-emerald-50 px-2 py-0.5 text-[11px] font-medium text-emerald-700">
-          Premium
+          {customer.tier || "Premium"}
         </span>
       </header>
 
@@ -116,6 +151,45 @@ export function CustomerInfoCard({
           </div>
         )}
       </dl>
+
+      {/* AI-powered call insights */}
+      {(
+        aiInsights?.nextBestAction ||
+        aiInsights?.sentiment ||
+        aiInsights?.crossSellOpportunity
+      ) && (
+        <div className="mt-4 pt-3 border-t border-[#e5e7eb] space-y-2">
+          <p className="text-[11px] font-medium text-slate-500 uppercase tracking-[0.16em]">
+            Call Insights
+          </p>
+          {aiInsights.nextBestAction && (
+            <div className="rounded-md bg-white border border-emerald-100 px-3 py-2">
+              <p className="text-[11px] font-semibold text-emerald-800 mb-0.5">
+                Next best action
+              </p>
+              <p className="text-[11px] text-slate-700">
+                {aiInsights.nextBestAction}
+              </p>
+            </div>
+          )}
+          {aiInsights.sentiment && (
+            <div className="inline-flex items-center rounded-full bg-slate-100 border border-slate-200 px-2 py-0.5 text-[10px] text-slate-700">
+              <span className="size-1.5 rounded-full bg-emerald-500 mr-1.5" />
+              Sentiment: {aiInsights.sentiment}
+            </div>
+          )}
+          {aiInsights.crossSellOpportunity && (
+            <div className="rounded-md bg-blue-50 border border-blue-100 px-3 py-2">
+              <p className="text-[11px] font-semibold text-blue-800 mb-0.5">
+                Cross-sell opportunity
+              </p>
+              <p className="text-[11px] text-blue-700">
+                {aiInsights.crossSellOpportunity}
+              </p>
+            </div>
+          )}
+        </div>
+      )}
 
       <div className="mt-4 pt-3 border-t border-[#e5e7eb]">
         <p className="text-[11px] font-medium text-slate-500 uppercase tracking-[0.16em] mb-2">

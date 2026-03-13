@@ -19,12 +19,19 @@ import {
   getAgentClosing,
   getAgentReplyForCustomerMessage,
 } from "@/lib/ur-agents";
+import { getCustomerInfoForPersona } from "@/mock/customer-personas";
 import { cancelTTS } from "@/lib/tts";
 import { useAgentSpeechCapture } from "@/hooks/useAgentSpeechCapture";
 import type {
   TranscriptEntry,
   ResolutionSuggestion,
 } from "@/types/call-records";
+
+type AiCustomerInsights = {
+  nextBestAction?: string;
+  sentiment?: string;
+  crossSellOpportunity?: string;
+};
 
 const MAX_TURNS = 5;
 
@@ -80,8 +87,8 @@ function buildClosingPrompt(
 export default function CoPilotPage() {
   const router = useRouter();
   const [callStatus, setCallStatus] = useState<
-    "idle" | "connecting" | "active" | "ended" | "summarizing"
-  >("idle");
+    "idle" | "ringing" | "connecting" | "active" | "ended" | "summarizing"
+  >("ringing");
   const [callDuration, setCallDuration] = useState(0);
   const [transcriptEntries, setTranscriptEntries] = useState<
     TranscriptEntry[]
@@ -89,6 +96,8 @@ export default function CoPilotPage() {
   const [suggestion, setSuggestion] = useState<ResolutionSuggestion | null>(
     null
   );
+  const [aiCustomerInsights, setAiCustomerInsights] =
+    useState<AiCustomerInsights | null>(null);
   const [isSuggestionsLoading, setIsSuggestionsLoading] = useState(false);
   const [sessionId, setSessionId] = useState(() =>
     generateSessionId("copilot")
@@ -121,6 +130,28 @@ export default function CoPilotPage() {
     transcriptRef.current = [...transcriptRef.current, entry];
     setTranscriptEntries([...transcriptRef.current]);
   }, []);
+
+  const updateAiInsightsFromSuggestion = useCallback(
+    (s: ResolutionSuggestion | null) => {
+      if (!s) {
+        setAiCustomerInsights(null);
+        return;
+      }
+      const nextBest = s.next_best_action?.trim();
+      const sentiment = s.customer_sentiment?.trim();
+      const crossSell = s.cross_sell_opportunity?.trim();
+      if (!nextBest && !sentiment && !crossSell) {
+        setAiCustomerInsights(null);
+        return;
+      }
+      setAiCustomerInsights({
+        nextBestAction: nextBest || undefined,
+        sentiment: sentiment || undefined,
+        crossSellOpportunity: crossSell || undefined,
+      });
+    },
+    []
+  );
 
   const runCallLoop = useCallback(
     async (
@@ -259,7 +290,10 @@ export default function CoPilotPage() {
             fullText,
             sid
           );
-          if (resolutionResult) setSuggestion(resolutionResult);
+          if (resolutionResult) {
+            setSuggestion(resolutionResult);
+            updateAiInsightsFromSuggestion(resolutionResult);
+          }
         } catch (err) {
           console.error("Resolution agent error:", err);
         }
@@ -300,7 +334,7 @@ export default function CoPilotPage() {
         onCallResolved(transcriptRef.current);
       }
     },
-    [addToTranscript]
+    [addToTranscript, updateAiInsightsFromSuggestion]
   );
 
   const handleSayWhisper = useCallback(
@@ -336,11 +370,14 @@ export default function CoPilotPage() {
     setIsSuggestionsLoading(true);
     sendTranscriptForResolution(fullText, sessionId)
       .then((result) => {
-        if (result) setSuggestion(result);
+        if (result) {
+          setSuggestion(result);
+          updateAiInsightsFromSuggestion(result);
+        }
       })
       .catch((err) => console.error("Resolution agent error:", err))
       .finally(() => setIsSuggestionsLoading(false));
-  }, [customInput, callStatus, sessionId]);
+  }, [customInput, callStatus, sessionId, updateAiInsightsFromSuggestion]);
 
   const handleCallResolved = useCallback(
     async (transcript: TranscriptEntry[]) => {
@@ -356,6 +393,19 @@ export default function CoPilotPage() {
       const sid = sessionIdRef.current;
       generateCallSummary(fullTranscript, sid)
         .then((summary) => {
+          // Ensure customer name on summary matches the active persona profile
+          const personaProfile = getCustomerInfoForPersona(
+            SPOOF_PERSONAS.find((p) => p.value === selectedPersona)?.label
+          );
+          if (personaProfile) {
+            summary.call_summary.customer_name = personaProfile.name;
+            summary.call_summary.customer_account =
+              personaProfile.account ?? summary.call_summary.customer_account;
+            summary.account_name = personaProfile.name;
+            if (personaProfile.account) {
+              summary.account_id = personaProfile.account;
+            }
+          }
           const existing = JSON.parse(
             localStorage.getItem("ur_call_history") ?? "[]"
           );
@@ -367,17 +417,27 @@ export default function CoPilotPage() {
           console.error("Summary generation failed:", err);
         });
     },
-    []
+    [selectedPersona]
   );
 
   const handleStartCall = useCallback(() => {
     setCallStatus("connecting");
     setTranscriptEntries([]);
     setSuggestion(null);
+    setAiCustomerInsights(null);
     setSummarySaved(false);
     setCallDuration(0);
     setCustomInput("");
     spoofLoopAbortedRef.current = false;
+
+    // Randomly select persona and intent for this incoming call
+    const randomPersona =
+      SPOOF_PERSONAS[Math.floor(Math.random() * SPOOF_PERSONAS.length)].value;
+    const randomIntent =
+      SPOOF_INTENTS[Math.floor(Math.random() * SPOOF_INTENTS.length)].value;
+    setSelectedPersona(randomPersona);
+    setSelectedIntent(randomIntent);
+
     const newSessionId = generateSessionId("copilot");
     const newSpoofSessionId = generateSessionId("spoof");
     setSessionId(newSessionId);
@@ -386,17 +446,12 @@ export default function CoPilotPage() {
     setCallStatus("active");
     const isrName = "Sarah";
     runCallLoop(
-      selectedPersona,
-      selectedIntent,
+      randomPersona,
+      randomIntent,
       isrName,
       handleCallResolved
     );
-  }, [
-    runCallLoop,
-    selectedPersona,
-    selectedIntent,
-    handleCallResolved,
-  ]);
+  }, [runCallLoop, handleCallResolved]);
 
   const handleEndCall = useCallback(() => {
     spoofLoopAbortedRef.current = true;
@@ -409,6 +464,18 @@ export default function CoPilotPage() {
         .join("\n");
       generateCallSummary(fullTranscript, sessionId)
         .then((summary) => {
+          const personaProfile = getCustomerInfoForPersona(
+            SPOOF_PERSONAS.find((p) => p.value === selectedPersona)?.label
+          );
+          if (personaProfile) {
+            summary.call_summary.customer_name = personaProfile.name;
+            summary.call_summary.customer_account =
+              personaProfile.account ?? summary.call_summary.customer_account;
+            summary.account_name = personaProfile.name;
+            if (personaProfile.account) {
+              summary.account_id = personaProfile.account;
+            }
+          }
           const existing = JSON.parse(
             localStorage.getItem("ur_call_history") ?? "[]"
           );
@@ -426,9 +493,10 @@ export default function CoPilotPage() {
   }, [transcriptEntries, sessionId, agentSpeech]);
 
   const handleNewCall = useCallback(() => {
-    setCallStatus("idle");
+    setCallStatus("ringing");
     setTranscriptEntries([]);
     setSuggestion(null);
+    setAiCustomerInsights(null);
     setCallDuration(0);
     setSummarySaved(false);
     setSessionId(generateSessionId("copilot"));
@@ -595,27 +663,27 @@ export default function CoPilotPage() {
                 <button
                   type="button"
                   onClick={() => setIsRightPanelCollapsed(false)}
-                  className="h-full w-6 flex items-center justify-center bg-gradient-to-b from-slate-900 via-slate-950 to-slate-900 text-[11px] text-slate-200 border border-slate-800 rounded-l-none rounded-r-xl shadow-[0_18px_40px_rgba(15,23,42,0.9)]"
+                  className="h-full w-6 flex items-center justify-center bg-white text-[11px] text-slate-500 border border-slate-200 rounded-l-none rounded-r-xl shadow-[0_10px_30px_rgba(148,163,184,0.4)]"
                   aria-label="Expand assistant panel"
                 >
-                  ||
+                  &lt;
                 </button>
               ) : (
                 /* Expanded: full drawer */
                 <div className="relative w-[360px] h-full">
-                  <div className="h-full w-[360px] overflow-hidden rounded-2xl border border-white/70 bg-white/95 flex flex-col shadow-[0_18px_40px_rgba(148,163,184,0.5)]">
+                  <div className="h-full w-[360px] overflow-hidden rounded-2xl border border-slate-200 bg-white flex flex-col shadow-[0_18px_40px_rgba(148,163,184,0.5)]">
                     {/* Header: small slide button + tabs */}
-                    <div className="px-4 pt-3 pb-2 border-b border-[#e5e7eb] bg-gradient-to-r from-white via-[#f5f3ff] to-[#eef2ff]">
+                    <div className="px-4 pt-3 pb-2 border-b border-[#e5e7eb] bg-white">
                       <div className="flex items-center justify-between gap-3">
                         <button
                           type="button"
                           onClick={() => setIsRightPanelCollapsed(true)}
-                          className="inline-flex items-center justify-center rounded-lg border border-indigo-200 bg-white/90 px-2 py-1 text-[11px] text-slate-600 shadow-sm hover:bg-white"
+                          className="inline-flex items-center justify-center rounded-lg border border-slate-200 bg-white px-2 py-1 text-[11px] text-slate-600 shadow-sm hover:bg-slate-50"
                           aria-label="Collapse assistant panel"
                         >
-                          ||
+                          &gt;
                         </button>
-                        <div className="inline-flex rounded-full bg-white shadow-sm shadow-indigo-100 p-1 text-[11px]">
+                        <div className="inline-flex rounded-full bg-slate-100 p-1 text-[11px]">
                           <button
                             type="button"
                             onClick={() => setRightPanelTab("chat")}
@@ -636,7 +704,7 @@ export default function CoPilotPage() {
                                 : "text-slate-500"
                             }`}
                           >
-                            Info
+                            Customer Info
                           </button>
                         </div>
                       </div>
@@ -651,6 +719,7 @@ export default function CoPilotPage() {
                             SPOOF_PERSONAS.find((p) => p.value === selectedPersona)
                               ?.label
                           }
+                          aiInsights={aiCustomerInsights}
                         />
                       ) : (
                         <CustomerAssistChat />

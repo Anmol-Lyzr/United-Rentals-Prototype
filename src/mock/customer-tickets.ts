@@ -23,6 +23,11 @@ export async function getTicketsForPersona(
           status: "closed",
           title: "Equipment breakdown during rental",
         },
+        {
+          id: "TKT-4610",
+          status: "open",
+          title: "Escalated call with branch manager",
+        },
       ];
     case "Confused customer":
       return [
@@ -31,6 +36,24 @@ export async function getTicketsForPersona(
           status: "open",
           title: "Clarification on rental coverage",
         },
+        {
+          id: "TKT-3920",
+          status: "closed",
+          title: "Onboarding walkthrough for Total Control",
+        },
+      ];
+    case "Neutral customer":
+      return [
+        {
+          id: "TKT-4105",
+          status: "closed",
+          title: "Standard reservation created for upcoming project",
+        },
+        {
+          id: "TKT-4122",
+          status: "open",
+          title: "Pending quote approval from estimator",
+        },
       ];
     case "Happy customer":
       return [
@@ -38,6 +61,11 @@ export async function getTicketsForPersona(
           id: "TKT-5102",
           status: "closed",
           title: "Recent successful project support",
+        },
+        {
+          id: "TKT-5120",
+          status: "closed",
+          title: "Referral discount applied to new contract",
         },
       ];
     default:

@@ -14,7 +14,7 @@ export interface SpoofIntentOption {
 }
 
 interface CallControlsProps {
-  callStatus: "idle" | "connecting" | "active" | "ended";
+  callStatus: "idle" | "ringing" | "connecting" | "active" | "ended";
   callDuration: number;
   /** Demo: persona for spoof customer (value = name, label can include emoji) */
   selectedPersona: string;
@@ -54,79 +54,67 @@ export function CallControls({
   const demoDisabled = callStatus === "active" || callStatus === "connecting";
   return (
     <div className="shrink-0 min-h-14 px-5 py-2 bg-white border-b border-gray-200 flex flex-wrap items-center gap-3">
-      <div className="flex items-center gap-2 shrink-0">
-        <label className="text-xs font-medium text-gray-500 shrink-0">
-          Persona
-        </label>
-        <select
-          value={selectedPersona}
-          onChange={(e) => onPersonaChange(e.target.value)}
-          disabled={demoDisabled}
-          className={`${selectClass} min-w-[140px]`}
-        >
-          {personaOptions.map((p) => (
-            <option key={p.value} value={p.value}>
-              {p.label}
-            </option>
-          ))}
-        </select>
-      </div>
-      <div className="flex items-center gap-2 shrink-0">
-        <label className="text-xs font-medium text-gray-500 shrink-0">
-          Intent
-        </label>
-        <select
-          value={selectedIntent}
-          onChange={(e) => onIntentChange(e.target.value)}
-          disabled={demoDisabled}
-          className={`${selectClass} min-w-[160px]`}
-        >
-          {intentOptions.map((i) => (
-            <option key={i.value} value={i.value}>
-              {i.label}
-            </option>
-          ))}
-        </select>
-      </div>
-
-      {callStatus === "active" && (
-        <div className="flex items-center gap-2 shrink-0">
-          <span className="relative flex h-2 w-2">
-            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75" />
-            <span className="relative inline-flex rounded-full h-2 w-2 bg-red-500" />
-          </span>
-          <span className="text-sm tabular-nums font-medium text-gray-900">
-            {formatDuration(callDuration)}
-          </span>
+      {/* Left side: Incoming call banner or live status */}
+      {callStatus === "ringing" ? (
+        <div className="flex items-center gap-3 shrink-0">
+          <div className="flex items-center gap-2">
+            <span className="relative flex h-2.5 w-2.5">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-300 opacity-75" />
+              <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500" />
+            </span>
+            <div className="flex flex-col">
+              <span className="text-xs font-semibold text-gray-900">
+                Incoming call
+              </span>
+              <span className="text-[11px] text-gray-500">
+                Customer waiting — pick up to begin
+              </span>
+            </div>
+          </div>
+        </div>
+      ) : (
+        <div className="flex items-center gap-3 shrink-0">
+          {callStatus === "active" && (
+            <>
+              <span className="relative flex h-2 w-2">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75" />
+                <span className="relative inline-flex rounded-full h-2 w-2 bg-red-500" />
+              </span>
+              <span className="text-sm tabular-nums font-medium text-gray-900">
+                {formatDuration(callDuration)}
+              </span>
+            </>
+          )}
+          {callStatus === "connecting" && (
+            <span className="text-xs text-gray-500 flex items-center gap-1">
+              <span className="relative flex h-2 w-2">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-sky-300 opacity-75" />
+                <span className="relative inline-flex rounded-full h-2 w-2 bg-sky-500" />
+              </span>
+              Connecting call...
+            </span>
+          )}
         </div>
       )}
 
-      <div className="flex items-center gap-2 shrink-0">
-        {callStatus === "idle" || callStatus === "ended" ? (
+      {/* Right side: Call-to-action button */}
+      <div className="flex items-center gap-2 shrink-0 ml-auto">
+        {callStatus === "ringing" || callStatus === "idle" || callStatus === "ended" ? (
           <Button
             onClick={callStatus === "ended" ? onNewCall : onStartCall}
-            className="rounded-full bg-primary text-white shadow-none hover:bg-primary/90 h-9 px-4"
+            className="rounded-full bg-primary text-white shadow-none hover:bg-primary/90 h-9 px-4 gap-2"
           >
             <Phone className="size-4" />
             <span className="text-sm font-semibold">
-              {callStatus === "ended" ? "New Call" : "Start Call"}
+              {callStatus === "ended" ? "New Call" : "Pick up now"}
             </span>
           </Button>
         ) : callStatus === "connecting" ? (
-          <Button disabled className="rounded-full shadow-none h-9 px-4">
+          <Button disabled className="rounded-full shadow-none h-9 px-4 gap-2">
             <Loader2 className="size-4 animate-spin" />
-            <span className="text-sm font-semibold">Connecting...</span>
+            <span className="text-sm font-semibold">Connecting…</span>
           </Button>
-        ) : (
-          <Button
-            variant="destructive"
-            onClick={onEndCall}
-            className="rounded-full shadow-none h-9 px-4"
-          >
-            <PhoneOff className="size-4" />
-            <span className="text-sm font-semibold">End Call</span>
-          </Button>
-        )}
+        ) : null}
       </div>
     </div>
   );
