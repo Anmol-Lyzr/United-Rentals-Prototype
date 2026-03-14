@@ -33,6 +33,20 @@ export type DemoAnalyticsSnapshot = {
   volume: DemoVolumePoint[];
 };
 
+export type DemoChannelStat = {
+  label: "Voice" | "Billing" | "Troubleshooting";
+  total: number;
+  aiResolution: number;
+  avgMinutes: number;
+  sentiment: number;
+};
+
+export type DemoSlaBreakdown = {
+  within: number;
+  atRisk: number;
+  breached: number;
+};
+
 // Stable demo agent snapshots shown on the Dashboard and Analytics pages.
 export const dashboardAgentSnapshots: DashboardAgentSnapshot[] = [
   {
@@ -68,6 +82,38 @@ export const demoAnalyticsSnapshot: DemoAnalyticsSnapshot = {
     { date: "2026-03-13", total: 17, resolved: 13, followUp: 3, other: 1 },
     { date: "2026-03-14", total: 17, resolved: 13, followUp: 3, other: 1 },
   ],
+};
+
+// Channel-level demo metrics that keep Analytics channel cards populated,
+// even when there is limited or no real call history.
+export const demoChannelStats: DemoChannelStat[] = [
+  {
+    label: "Voice",
+    total: 128,
+    aiResolution: 92,
+    avgMinutes: 4.3,
+    sentiment: 4.7,
+  },
+  {
+    label: "Billing",
+    total: 46,
+    aiResolution: 88,
+    avgMinutes: 5.1,
+    sentiment: 4.2,
+  },
+  {
+    label: "Troubleshooting",
+    total: 36,
+    aiResolution: 86,
+    avgMinutes: 5.4,
+    sentiment: 4.0,
+  },
+];
+
+export const demoSlaBreakdown: DemoSlaBreakdown = {
+  within: 92,
+  atRisk: 5,
+  breached: 3,
 };
 
 // Convenience async helper so existing code can continue to treat this as an API.

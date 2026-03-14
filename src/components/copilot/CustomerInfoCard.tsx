@@ -86,10 +86,14 @@ export function CustomerInfoCard({
   record,
   personaLabel,
   aiInsights,
+  isWaitingForCall,
+  isLoading,
 }: {
   record?: CallRecord | null;
   personaLabel?: string;
   aiInsights?: AiCustomerInsights | null;
+  isWaitingForCall?: boolean;
+  isLoading?: boolean;
 }) {
   const personaCustomer = !record
     ? getCustomerInfoForPersona(personaLabel)
@@ -147,6 +151,27 @@ export function CustomerInfoCard({
       setCreditLimit(null);
     }
   }, [accountId]);
+
+  if (isWaitingForCall) {
+    return (
+      <section className="px-4 pt-4 pb-4 border-b border-[#e5e7eb] bg-gradient-to-b from-white via-[#f5f3ff] to-[#eef2ff] flex items-center justify-center">
+        <p className="text-xs text-slate-600 text-center">
+          Customer details will appear here once the call is answered.
+        </p>
+      </section>
+    );
+  }
+
+  if (isLoading) {
+    return (
+      <section className="px-4 pt-4 pb-4 border-b border-[#e5e7eb] bg-gradient-to-b from-white via-[#f5f3ff] to-[#eef2ff] flex items-center justify-center">
+        <div className="flex items-center gap-2 text-xs text-slate-600">
+          <div className="size-4 border-2 border-indigo-200 border-t-indigo-500 rounded-full animate-spin" />
+          <span>Fetching customer details...</span>
+        </div>
+      </section>
+    );
+  }
 
   return (
     <section className="px-4 pt-4 pb-4 border-b border-[#e5e7eb] bg-gradient-to-b from-white via-[#f5f3ff] to-[#eef2ff]">

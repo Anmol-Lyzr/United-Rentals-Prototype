@@ -19,7 +19,11 @@ import {
 } from "lucide-react";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import type { CallRecord } from "@/types/call-records";
-import { demoAnalyticsSnapshot } from "@/mock/app-demo-data";
+import {
+  demoAnalyticsSnapshot,
+  demoChannelStats,
+  demoSlaBreakdown,
+} from "@/mock/app-demo-data";
 import { format, isSameDay, subDays } from "date-fns";
 
 function parseDurationMinutes(estimate?: string): number | null {
@@ -97,30 +101,7 @@ export default function AnalyticsPage() {
         otherCount: point.other,
       }));
       const max = volume.reduce((m, p) => (p.count > m ? p.count : m), 0);
-      // Reconstruct simple channel stats from the demo totals to keep the UI stable.
-      const channelStats = [
-        {
-          label: "Voice",
-          total: demo.totalConversations,
-          aiResolution: demo.aiResolutionRate,
-          avgMinutes: demo.avgHandleMinutes,
-          sentiment: demo.sentimentScore,
-        },
-        {
-          label: "Billing",
-          total: Math.round(demo.totalConversations * 0.35),
-          aiResolution: Math.min(98, demo.aiResolutionRate - 4),
-          avgMinutes: demo.avgHandleMinutes + 0.8,
-          sentiment: demo.sentimentScore - 0.3,
-        },
-        {
-          label: "Troubleshooting",
-          total: Math.round(demo.totalConversations * 0.28),
-          aiResolution: Math.min(98, demo.aiResolutionRate - 6),
-          avgMinutes: demo.avgHandleMinutes + 1.1,
-          sentiment: demo.sentimentScore - 0.5,
-        },
-      ];
+      const channelStats = demoChannelStats;
 
       return {
         totalConversations: demo.totalConversations,
@@ -147,11 +128,7 @@ export default function AnalyticsPage() {
             tone: "bg-violet-400",
           },
         ],
-        slaBreakdown: {
-          within: 92,
-          atRisk: 5,
-          breached: 3,
-        },
+        slaBreakdown: demoSlaBreakdown,
         channelStats,
       };
     }
@@ -284,6 +261,16 @@ export default function AnalyticsPage() {
       "Voice" | "Billing" | "Troubleshooting",
       CallRecord[],
     ][]).map(([label, items]) => {
+      // If this channel has no calls in the current window, fall back to
+      // a realistic baseline from the unified demo data so we never show
+      // empty or all-zero cards.
+      if (items.length === 0) {
+        const baseline = demoChannelStats.find((c) => c.label === label);
+        if (baseline) {
+          return baseline;
+        }
+      }
+
       const count = items.length;
       const resolvedCount = items.filter(
         (r) => r.follow_up_required === false

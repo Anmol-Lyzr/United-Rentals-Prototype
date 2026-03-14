@@ -49,6 +49,8 @@ export const SPOOF_PERSONAS = [
 export const SPOOF_INTENTS = [
   { value: "new_reservation", label: "New reservation" },
   { value: "billing_inquiry", label: "Billing inquiry" },
+  { value: "contract_inquiry", label: "Contract inquiry" },
+  { value: "general_inquiry", label: "General inquiry" },
   { value: "invoice_dispute", label: "Invoice dispute" },
   { value: "equipment_troubleshooting", label: "Equipment troubleshooting" },
   { value: "off_rent", label: "Off-rent / pickup" },
@@ -64,48 +66,14 @@ export const SPOOF_INTENTS = [
   { value: "multi_topic", label: "Multi-topic call" },
 ] as const;
 
-// Make intent selection feel more natural per persona by biasing
-// each persona toward a subset of likely intents while still randomizing.
-const PERSONA_INTENT_POOLS: Record<string, string[]> = {
-  happy_customer: [
-    "new_reservation",
-    "delivery_scheduling",
-    "rpp_question",
-    "rental_extension",
-    "equipment_swap",
-    "multi_topic",
-  ],
-  angry_customer: [
-    "invoice_dispute",
-    "billing_inquiry",
-    "equipment_troubleshooting",
-    "competitor_mention",
-    "off_rent",
-  ],
-  confused_customer: [
-    "equipment_troubleshooting",
-    "account_setup",
-    "total_control_support",
-    "operator_certification",
-    "multi_topic",
-  ],
-  neutral_customer: [
-    "new_reservation",
-    "delivery_scheduling",
-    "off_rent",
-    "rental_extension",
-    "branch_transfer",
-  ],
-};
-
 function buildSpoofInitialMessage(
-  persona: string,
-  intent: string,
+  personaDescription: string,
+  intentDescription: string,
   isrName: string,
   agentGreeting: string
 ): string {
   const isr = isrName.trim() || "Sarah";
-  return `The ISR (agent) has just said: "${agentGreeting}" You are ${persona}. Reply with ONLY your first line as the customer: greet, state your name, and briefly state your reason for calling (e.g. ${intent}). No prefixes or labels.`;
+  return `The ISR (agent) has just said: "${agentGreeting}" You are ${personaDescription}, a United Rentals customer calling about ${intentDescription}. Stay focused on this topic throughout the conversation. Reply with ONLY your first line as the customer: greet, state your name, and briefly state your reason for calling (e.g. ${intentDescription}). No prefixes or labels.`;
 }
 
 function buildSpoofContinuation(conversationBlurb: string): string {
@@ -162,12 +130,41 @@ export default function CoPilotPage() {
   /** Customer name and account from Customer Info, captured when the call starts; used when saving to Call History */
   const callCustomerNameRef = useRef<string | undefined>(undefined);
   const callCustomerAccountRef = useRef<string | undefined>(undefined);
+  // Separate indices used to cycle personas and intents so each call uses a
+  // different combination in sequence instead of randomness.
+  const personaCycleIndexRef = useRef<number>(-1);
+  const intentCycleIndexRef = useRef<number>(-1);
 
   const agentSpeech = useAgentSpeechCapture();
 
   useEffect(() => {
     sessionIdRef.current = sessionId;
   }, [sessionId]);
+
+  // Restore persona/intent indices from sessionStorage so that even if the
+  // user navigates away from /copilot and returns, the next call will use
+  // the next persona/intent in the loop instead of restarting from the first.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const storedPersonaIndex = window.sessionStorage.getItem(
+      "ur_spoof_persona_index"
+    );
+    const storedIntentIndex = window.sessionStorage.getItem(
+      "ur_spoof_intent_index"
+    );
+    if (storedPersonaIndex != null) {
+      const parsed = Number.parseInt(storedPersonaIndex, 10);
+      if (!Number.isNaN(parsed)) {
+        personaCycleIndexRef.current = parsed;
+      }
+    }
+    if (storedIntentIndex != null) {
+      const parsed = Number.parseInt(storedIntentIndex, 10);
+      if (!Number.isNaN(parsed)) {
+        intentCycleIndexRef.current = parsed;
+      }
+    }
+  }, []);
 
   useEffect(() => {
     if (callStatus !== "active") return;
@@ -282,7 +279,17 @@ export default function CoPilotPage() {
           )
           .join("\n\n");
 
-      let spoofMessage = buildSpoofInitialMessage(persona, intent, isrName, agentGreeting);
+      const personaLabel =
+        SPOOF_PERSONAS.find((p) => p.value === persona)?.label ?? persona;
+      const intentLabel =
+        SPOOF_INTENTS.find((i) => i.value === intent)?.label ?? intent;
+
+      let spoofMessage = buildSpoofInitialMessage(
+        personaLabel,
+        intentLabel,
+        isrName,
+        agentGreeting
+      );
       let turnCount = 0;
       let resolvedByCustomer = false;
 
@@ -627,29 +634,41 @@ export default function CoPilotPage() {
     setHasCustomerSpoken(false);
     setRightPanelTab("chat");
 
-    // Randomly select persona and intent for this incoming call.
-    // Persona is fully random; intent is randomly chosen from a persona-specific pool
-    // (falling back to all intents if no pool is defined).
-    const personaValues = SPOOF_PERSONAS.map((p) => p.value);
-    const allIntentValues = SPOOF_INTENTS.map((i) => i.value);
-    const randomPersona =
-      personaValues.length > 0
-        ? personaValues[Math.floor(Math.random() * personaValues.length)]
-        : selectedPersona;
-    const personaPool =
-      PERSONA_INTENT_POOLS[randomPersona] && PERSONA_INTENT_POOLS[randomPersona].length > 0
-        ? PERSONA_INTENT_POOLS[randomPersona]
-        : allIntentValues;
-    const randomIntent =
-      personaPool.length > 0
-        ? personaPool[Math.floor(Math.random() * personaPool.length)]
-        : selectedIntent;
-    setSelectedPersona(randomPersona);
-    setSelectedIntent(randomIntent);
+    // Cycle persona and intent in deterministic loops so each new call
+    // uses a different customer and a different intent instead of randomness.
+    const nextPersonaIndex =
+      (personaCycleIndexRef.current + 1 + SPOOF_PERSONAS.length) %
+      SPOOF_PERSONAS.length;
+    const nextIntentIndex =
+      (intentCycleIndexRef.current + 1 + SPOOF_INTENTS.length) %
+      SPOOF_INTENTS.length;
+    personaCycleIndexRef.current = nextPersonaIndex;
+    intentCycleIndexRef.current = nextIntentIndex;
+    if (typeof window !== "undefined") {
+      window.sessionStorage.setItem(
+        "ur_spoof_persona_index",
+        String(nextPersonaIndex)
+      );
+      window.sessionStorage.setItem(
+        "ur_spoof_intent_index",
+        String(nextIntentIndex)
+      );
+    }
+    const nextPersona = SPOOF_PERSONAS[nextPersonaIndex].value;
+    const nextIntent = SPOOF_INTENTS[nextIntentIndex].value;
+
+    console.log("[CoPilot] Call started", {
+      persona: nextPersona,
+      intent: nextIntent,
+      personaIndex: nextPersonaIndex,
+      intentIndex: nextIntentIndex,
+    });
+    setSelectedPersona(nextPersona);
+    setSelectedIntent(nextIntent);
 
     // Save customer name and account from Customer Info (persona) for this call so Call History uses the same
     const personaLabelForCall =
-      SPOOF_PERSONAS.find((p) => p.value === randomPersona)?.label;
+      SPOOF_PERSONAS.find((p) => p.value === nextPersona)?.label;
     const profileForCall = personaLabelForCall
       ? getCustomerInfoForPersona(personaLabelForCall)
       : null;
@@ -664,8 +683,8 @@ export default function CoPilotPage() {
     spoofSessionIdRef.current = newSpoofSessionId;
     setCallStatus("active");
     const isrName = "Sarah";
-    runCallLoop(randomPersona, randomIntent, isrName, handleCallResolved);
-  }, [runCallLoop, handleCallResolved, selectedPersona, selectedIntent]);
+    runCallLoop(nextPersona, nextIntent, isrName, handleCallResolved);
+  }, [runCallLoop, handleCallResolved]);
 
   const handleEndCall = useCallback(() => {
     spoofLoopAbortedRef.current = true;
@@ -756,17 +775,7 @@ export default function CoPilotPage() {
           onNewCall={handleNewCall}
         />
 
-        {callStatus === "summarizing" && (
-          <div className="flex-1 flex flex-col items-center justify-center gap-4 bg-white">
-            <div className="size-10 border-4 border-primary/20 border-t-primary rounded-full animate-spin" />
-            <p className="text-sm font-semibold text-gray-900">
-              Saving call and generating summary...
-            </p>
-          </div>
-        )}
-
-        {callStatus !== "summarizing" && (
-          <div className="flex-1 flex min-h-0 gap-4 overflow-hidden">
+        <div className="flex-1 flex min-h-0 gap-4 overflow-hidden">
             {/* Left panel: live transcript (fixed width, does not move with drawer) */}
             <div className="w-[40%] shrink-0 min-w-0 border border-gray-200 rounded-2xl bg-white flex flex-col overflow-hidden">
               <TranscriptFeed
@@ -857,20 +866,34 @@ export default function CoPilotPage() {
                 </div>
               )} */}
 
-              {callStatus === "ended" && (
+              {(callStatus === "summarizing" || callStatus === "ended") && (
                 <div className="shrink-0 px-4 py-3 border-t border-gray-200 bg-slate-50 flex flex-wrap items-center gap-2">
-                  {summarySaved && (
-                    <span className="text-sm text-emerald-600 font-medium">
-                      Summary saved to Call History.
-                    </span>
+                  {callStatus === "summarizing" && (
+                    <>
+                      <div className="inline-flex items-center gap-2">
+                        <div className="size-4 border-2 border-primary/30 border-t-primary rounded-full animate-spin" />
+                        <span className="text-sm text-slate-700 font-medium">
+                          ⏳ Processing chat and creating summary...
+                        </span>
+                      </div>
+                    </>
                   )}
-                  <button
-                    type="button"
-                    onClick={() => router.push("/call-history")}
-                    className="text-sm font-semibold text-primary hover:underline"
-                  >
-                    View Call History →
-                  </button>
+                  {callStatus === "ended" && (
+                    <>
+                      {summarySaved && (
+                        <span className="text-sm text-emerald-600 font-medium">
+                          Summary saved to Call History.
+                        </span>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => router.push("/call-history")}
+                        className="text-sm font-semibold text-primary hover:underline"
+                      >
+                        View Call History →
+                      </button>
+                    </>
+                  )}
                 </div>
               )}
             </div>
@@ -925,26 +948,24 @@ export default function CoPilotPage() {
                           >
                             Chat Assist
                           </button>
-                          {isCustomerInfoAvailable && (
-                            <button
-                              type="button"
-                              onClick={() => setRightPanelTab("info")}
-                              className={`inline-flex items-center justify-center gap-1.5 rounded-lg px-3.5 py-1.5 font-medium transition-all duration-200 ${
-                                rightPanelTab === "info"
-                                  ? "bg-white text-indigo-700 shadow-sm"
-                                  : "text-slate-500 hover:text-slate-700"
-                              }`}
-                            >
-                              Customer Info
-                            </button>
-                          )}
+                          <button
+                            type="button"
+                            onClick={() => setRightPanelTab("info")}
+                            className={`inline-flex items-center justify-center gap-1.5 rounded-lg px-3.5 py-1.5 font-medium transition-all duration-200 ${
+                              rightPanelTab === "info"
+                                ? "bg-white text-indigo-700 shadow-sm"
+                                : "text-slate-500 hover:text-slate-700"
+                            }`}
+                          >
+                            Customer Info
+                          </button>
                         </div>
                       </div>
                     </div>
 
                     {/* Tab content */}
                     <div className="flex-1 min-h-0 overflow-y-auto">
-                      {rightPanelTab === "info" && isCustomerInfoAvailable ? (
+                      {rightPanelTab === "info" ? (
                         <CustomerInfoCard
                           record={currentCallRecord ?? undefined}
                           personaLabel={
@@ -952,6 +973,12 @@ export default function CoPilotPage() {
                               ?.label
                           }
                           aiInsights={aiCustomerInsights}
+                          isWaitingForCall={
+                            callStatus === "idle" || callStatus === "ringing"
+                          }
+                          isLoading={
+                            callStatus === "active" && !isCustomerInfoAvailable
+                          }
                         />
                       ) : (
                         <CustomerAssistChat
@@ -981,7 +1008,6 @@ export default function CoPilotPage() {
               )}
             </div>
           </div>
-        )}
       </div>
     </div>
   );

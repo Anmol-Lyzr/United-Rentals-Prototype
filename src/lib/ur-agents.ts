@@ -472,6 +472,65 @@ interface LyzrSummaryResponse {
   };
 }
 
+function buildLocalFallbackSummary(
+  fullTranscript: string,
+  customerName?: string
+): { summaryText: string; category: string } {
+  const trimmedTranscript = fullTranscript.trim();
+  const safeName =
+    customerName && customerName !== "" ? customerName : "the customer";
+
+  if (!trimmedTranscript) {
+    return {
+      summaryText: `${safeName} contacted United Rentals with a general inquiry, but the conversation details were not captured in the transcript.`,
+      category: "general_inquiry",
+    };
+  }
+
+  const lower = trimmedTranscript.toLowerCase();
+  let category = "general_inquiry";
+
+  if (
+    lower.includes("invoice") ||
+    lower.includes("billing") ||
+    lower.includes("charge") ||
+    lower.includes("payment")
+  ) {
+    category = "billing_inquiry";
+  } else if (
+    lower.includes("extension") ||
+    lower.includes("extend") ||
+    lower.includes("extra day")
+  ) {
+    category = "rental_extension";
+  } else if (
+    lower.includes("off-rent") ||
+    lower.includes("pickup") ||
+    lower.includes("return")
+  ) {
+    category = "off_rent";
+  } else if (
+    lower.includes("not working") ||
+    lower.includes("issue") ||
+    lower.includes("error code") ||
+    lower.includes("troubleshoot")
+  ) {
+    category = "equipment_troubleshooting";
+  }
+
+  const lines = trimmedTranscript
+    .split(/\r?\n/)
+    .map((l) => l.trim())
+    .filter(Boolean);
+  const firstFewLines = lines.slice(0, 4).join(" ");
+
+  const summaryText = `${safeName} contacted United Rentals regarding a ${category
+    .replace(/_/g, " ")
+    .toLowerCase()}. Key parts of the conversation included: ${firstFewLines}`;
+
+  return { summaryText, category };
+}
+
 export async function generateCallSummary(
   fullTranscript: string,
   sessionId: string,
@@ -489,79 +548,108 @@ export async function generateCallSummary(
       ? `This call was with customer: ${customerName}. Account: ${customerAccount ?? "N/A"}.\n\n`
       : "";
   const message = `${customerContext}Process this completed call transcript and generate a full structured summary:\n\n${fullTranscript}`;
-  const response = await fetch(API_BASE_URL, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "x-api-key": API_KEY,
-    },
-    body: JSON.stringify({
-      message,
-      session_id: sessionId,
-      user_id: DEFAULT_USER_ID,
-      agent_id: SUMMARY_AGENT_ID,
-    }),
-  });
+  let data: any;
+  let reply = "";
+  let isErrorReply = false;
 
-  console.log("[SummaryAgent] HTTP response received", {
-    ok: response.ok,
-    status: response.status,
-  });
+  try {
+    // Make up to 2 attempts if we detect a tool/LLM-side error reply.
+    for (let attempt = 1; attempt <= 2; attempt++) {
+      const response = await fetch(API_BASE_URL, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-api-key": API_KEY,
+        },
+        body: JSON.stringify({
+          message,
+          session_id: sessionId,
+          user_id: DEFAULT_USER_ID,
+          agent_id: SUMMARY_AGENT_ID,
+        }),
+      });
 
-  if (!response.ok) {
-    throw new Error(`Summary agent error: ${response.status}`);
-  }
+      console.log("[SummaryAgent] HTTP response received", {
+        ok: response.ok,
+        status: response.status,
+        attempt,
+      });
 
-  const data = await response.json();
-  const reply = extractLyzrResponse(data);
+      if (!response.ok) {
+        throw new Error(`Summary agent error: ${response.status}`);
+      }
 
-  /** Detect if the reply is an LLM/API error message rather than a valid summary. */
-  const isErrorReply =
-    typeof reply === "string" &&
-    (reply.includes("Error in LLM") ||
-      reply.includes("BadRequestError") ||
-      reply.includes("tool_use_failed") ||
-      reply.includes("invalid_request_error") ||
-      reply.includes("GroqException") ||
-      reply.includes("failed_generation"));
+      data = await response.json();
+      reply = extractLyzrResponse(data);
 
-  if (isErrorReply) {
-    const fallbackId = `CALL-${new Date().toISOString().slice(0, 10).replace(/-/g, "")}-${Math.floor(1000 + Math.random() * 9000)}`;
-    const fallbackName = customerName && customerName !== "" ? customerName : "Unknown";
-    const fallbackAccount = customerAccount && customerAccount !== "" ? customerAccount : null;
-    return {
-      call_summary: {
-        call_id: fallbackId,
-        call_date: new Date().toISOString(),
-        call_duration_estimate: "—",
-        call_category: "general_inquiry",
-        customer_name: fallbackName,
-        customer_account: fallbackAccount,
-      },
-      summary: "Summary could not be generated for this call. You can review the transcript below.",
-      key_topics: [],
-      equipment_discussed: [],
-      action_items: [],
-      next_steps: [],
-      customer_health: {
-        sentiment: "neutral",
-        sentiment_triggers: [],
-        retention_risk: "none",
-      },
-      follow_up_required: false,
-      account_id: fallbackAccount ?? undefined,
-      account_name: fallbackName !== "Unknown" ? fallbackName : undefined,
-    };
-  }
+      /** Detect if the reply is an LLM/API error message rather than a valid summary. */
+      isErrorReply =
+        typeof reply === "string" &&
+        (reply.includes("Error in LLM") ||
+          reply.includes("BadRequestError") ||
+          reply.includes("tool_use_failed") ||
+          reply.includes("invalid_request_error") ||
+          reply.includes("GroqException") ||
+          reply.includes("failed_generation"));
 
-  // Lyzr may return response as string (JSON) or already as object
-  let parsed: LyzrSummaryResponse | null =
-    typeof data.response === "object" && data.response !== null
-      ? (data.response as LyzrSummaryResponse)
-      : tryParseJson<LyzrSummaryResponse>(reply);
+      if (!isErrorReply) {
+        break;
+      }
 
-  if (parsed) {
-    const callDate = parsed.call_date ?? new Date().toISOString().slice(0, 10);
+      if (attempt < 2) {
+        console.warn(
+          "[SummaryAgent] Detected error-like reply from agent, retrying...",
+          { attempt, replySnippet: String(reply).slice(0, 160) }
+        );
+      }
+    }
+
+    if (isErrorReply) {
+      console.warn("[SummaryAgent] Using local fallback summary after agent reply indicated an error");
+      const { summaryText, category } = buildLocalFallbackSummary(
+        fullTranscript,
+        customerName
+      );
+      const fallbackId = `CALL-${new Date().toISOString().slice(0, 10).replace(/-/g, "")}-${Math.floor(
+        1000 + Math.random() * 9000
+      )}`;
+      const fallbackName =
+        customerName && customerName !== "" ? customerName : "Unknown";
+      const fallbackAccount =
+        customerAccount && customerAccount !== "" ? customerAccount : null;
+      return {
+        call_summary: {
+          call_id: fallbackId,
+          call_date: new Date().toISOString(),
+          call_duration_estimate: "—",
+          call_category: category,
+          customer_name: fallbackName,
+          customer_account: fallbackAccount,
+        },
+        summary: summaryText,
+        key_topics: [],
+        equipment_discussed: [],
+        action_items: [],
+        next_steps: [],
+        customer_health: {
+          sentiment: "neutral",
+          sentiment_triggers: [],
+          retention_risk: "none",
+        },
+        follow_up_required: false,
+        account_id: fallbackAccount ?? undefined,
+        account_name: fallbackName !== "Unknown" ? fallbackName : undefined,
+      };
+    }
+
+    // Lyzr may return response as string (JSON) or already as object
+    let parsed: LyzrSummaryResponse | null =
+      typeof data.response === "object" && data.response !== null
+        ? (data.response as LyzrSummaryResponse)
+        : tryParseJson<LyzrSummaryResponse>(reply);
+
+    if (parsed) {
+      const callDate = parsed.call_date ?? new Date().toISOString().slice(0, 10);
     const callId =
       parsed.call_record_id ??
       `CALL-${callDate.replace(/-/g, "")}-${Math.floor(1000 + Math.random() * 9000)}`;
@@ -767,7 +855,7 @@ export async function generateCallSummary(
     const topicsFromCategories = parsed.call_categories?.secondary_types ?? [];
     const keyTopics = [...topicsFromCategories, ...insights];
 
-    const record: CallRecord = {
+      const record: CallRecord = {
       call_summary: {
         call_id: callId,
         call_date: parsed.call_date ?? new Date().toISOString(),
@@ -819,55 +907,100 @@ export async function generateCallSummary(
       customer_update: parsed.customer_update as CustomerUpdateSummary | undefined,
       stored_transcript: parsed.stored_transcript,
       record_management: parsed.record_management as RecordManagement | undefined,
-    };
-    return record;
-  }
-
-  // Fallback: try to extract narrative and customer from raw reply if it's JSON
-  let fallbackSummary = "";
-  let fallbackName = customerName && customerName !== "" ? customerName : "Unknown";
-  const fallbackAccount = customerAccount && customerAccount !== "" ? customerAccount : null;
-  if (typeof reply === "string" && reply.trim().startsWith("{")) {
-    const obj = tryParseJson<{ summary?: string; call_summary?: string; account_name?: string; customer?: { name?: string } }>(reply);
-    if (obj) {
-      fallbackSummary = (typeof obj.summary === "string" ? obj.summary : null) ?? (typeof obj.call_summary === "string" ? obj.call_summary : null) ?? "";
-      if (!fallbackName || fallbackName === "Unknown") fallbackName = obj.account_name ?? obj.customer?.name ?? "Unknown";
+      };
+      return record;
     }
-  }
-  if (!fallbackSummary) {
-    const rawReply = typeof reply === "string" ? reply : "";
-    const looksLikeError =
-      rawReply.includes("Error in LLM") ||
-      rawReply.includes("BadRequestError") ||
-      rawReply.includes("Exception") ||
-      rawReply.includes("tool_use_failed") ||
-      rawReply.includes("invalid_request_error");
-    fallbackSummary = rawReply && !looksLikeError
-      ? rawReply.slice(0, 2000)
-      : "Summary could not be generated for this call. You can review the transcript below.";
-  }
 
-  return {
-    call_summary: {
-      call_id: `CALL-${new Date().toISOString().slice(0, 10).replace(/-/g, "")}-${Math.floor(1000 + Math.random() * 9000)}`,
-      call_date: new Date().toISOString(),
-      call_duration_estimate: "Unknown",
-      call_category: "general_inquiry",
-      customer_name: fallbackName,
-      customer_account: fallbackAccount,
-    },
-    summary: fallbackSummary,
-    key_topics: [],
-    equipment_discussed: [],
-    action_items: [],
-    next_steps: [],
-    customer_health: {
-      sentiment: "neutral",
-      sentiment_triggers: [],
-      retention_risk: "none",
-    },
-    follow_up_required: false,
-  };
+    // Fallback: try to extract narrative and customer from raw reply if it's JSON
+    let fallbackSummary = "";
+    let fallbackName = customerName && customerName !== "" ? customerName : "Unknown";
+    const fallbackAccount = customerAccount && customerAccount !== "" ? customerAccount : null;
+    if (typeof reply === "string" && reply.trim().startsWith("{")) {
+      const obj = tryParseJson<{ summary?: string; call_summary?: string; account_name?: string; customer?: { name?: string } }>(reply);
+      if (obj) {
+        fallbackSummary = (typeof obj.summary === "string" ? obj.summary : null) ?? (typeof obj.call_summary === "string" ? obj.call_summary : null) ?? "";
+        if (!fallbackName || fallbackName === "Unknown") {
+          fallbackName = obj.account_name ?? obj.customer?.name ?? "Unknown";
+        }
+      }
+    }
+    if (!fallbackSummary) {
+      const rawReply = typeof reply === "string" ? reply : "";
+      const looksLikeError =
+        rawReply.includes("Error in LLM") ||
+        rawReply.includes("BadRequestError") ||
+        rawReply.includes("Exception") ||
+        rawReply.includes("tool_use_failed") ||
+        rawReply.includes("invalid_request_error");
+      fallbackSummary =
+        rawReply && !looksLikeError
+          ? rawReply.slice(0, 2000)
+          : "Summary could not be generated for this call. You can review the transcript below.";
+    }
+
+    return {
+      call_summary: {
+        call_id: `CALL-${new Date().toISOString().slice(0, 10).replace(/-/g, "")}-${Math.floor(
+          1000 + Math.random() * 9000
+        )}`,
+        call_date: new Date().toISOString(),
+        call_duration_estimate: "Unknown",
+        call_category: "general_inquiry",
+        customer_name: fallbackName,
+        customer_account: fallbackAccount,
+      },
+      summary: fallbackSummary,
+      key_topics: [],
+      equipment_discussed: [],
+      action_items: [],
+      next_steps: [],
+      customer_health: {
+        sentiment: "neutral",
+        sentiment_triggers: [],
+        retention_risk: "none",
+      },
+      follow_up_required: false,
+    };
+  } catch (error) {
+    console.error("[SummaryAgent] Error while generating summary, using local fallback", {
+      error:
+        error instanceof Error ? { message: error.message, name: error.name } : String(error),
+    });
+    const { summaryText, category } = buildLocalFallbackSummary(
+      fullTranscript,
+      customerName
+    );
+    const fallbackId = `CALL-${new Date().toISOString().slice(0, 10).replace(/-/g, "")}-${Math.floor(
+      1000 + Math.random() * 9000
+    )}`;
+    const fallbackName =
+      customerName && customerName !== "" ? customerName : "Unknown";
+    const fallbackAccount =
+      customerAccount && customerAccount !== "" ? customerAccount : null;
+    return {
+      call_summary: {
+        call_id: fallbackId,
+        call_date: new Date().toISOString(),
+        call_duration_estimate: "—",
+        call_category: category,
+        customer_name: fallbackName,
+        customer_account: fallbackAccount,
+      },
+      summary: summaryText,
+      key_topics: [],
+      equipment_discussed: [],
+      action_items: [],
+      next_steps: [],
+      customer_health: {
+        sentiment: "neutral",
+        sentiment_triggers: [],
+        retention_risk: "none",
+      },
+      follow_up_required: false,
+      account_id: fallbackAccount ?? undefined,
+      account_name: fallbackName !== "Unknown" ? fallbackName : undefined,
+    };
+  }
 }
 
 function mapOwner(
