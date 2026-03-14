@@ -1,3 +1,103 @@
+## United Rentals AI Co‑Pilot Prototype
+
+This repository contains a Next.js prototype for an **AI‑augmented United Rentals contact center experience**. It is designed as a polished demo you can walk through live with sales, customers, or internal stakeholders.
+
+The prototype focuses on two core journeys:
+
+- **Start Co‑Pilot** – a live, AI‑driven call simulation.
+- **Call History & Analytics** – a rich view of previous calls and demo analytics.
+
+The overall UI theme is **clean, modern, and sales‑ready**: light gradients, soft shadows, pill buttons, and carefully balanced spacing so it feels like a premium product, not a rough demo.
+
+---
+
+### Key Experiences
+
+- **Start Co‑Pilot**
+  - Automatically selects a **customer persona** (e.g. happy, angry, confused, neutral) and an **intent** (billing inquiry, contract inquiry, equipment troubleshooting, etc.) when you start a call.
+  - Uses a **spoof agent** to simulate the customer side of the conversation, so you can run realistic calls without a live caller.
+  - The **AI Suggestions panel** continuously analyzes the transcript and surfaces:
+    - Next best action.
+    - Customer sentiment.
+    - Cross‑sell opportunities.
+  - A **Customer Assist chat** gives the agent quick questions and knowledge snippets to use during the call.
+  - The **Customer Info** tab shows persona‑driven customer details (account, rentals, tickets, past calls) with a smooth loading flow:
+    - Before the call is answered: “Customer details will appear here once the call is answered.”
+    - Right after the call starts, before we have enough context: “Fetching customer details…”
+    - After the customer has spoken: full, rich customer profile.
+
+- **Call Summary & History**
+  - When a call ends, the full transcript is sent to a **Summary Agent**.
+  - The system always produces a structured **CallRecord**:
+    - If the remote summary service succeeds, we use its rich structured output.
+    - If it fails or returns an error‑like reply, we generate a **local summary** from the transcript without ever saying it is a “fallback”.
+  - Call History cards show:
+    - Customer name and account that match the persona used in Co‑Pilot.
+    - Call summary and category (billing, troubleshooting, extension, etc.).
+    - Stored transcript for deeper review.
+
+All persona and intent information is wired end‑to‑end so what you see in **Start Co‑Pilot** matches what you see later in **Call History**.
+
+---
+
+### Tech Stack
+
+- **Framework**: Next.js (App Router) with React.
+- **Styling**: Tailwind CSS + shadcn/ui, with a custom theme for:
+  - Soft gradients and subtle borders.
+  - Rounded cards and pill buttons.
+  - Consistent typography across Dashboard, Analytics, Reports, Integrations, and Co‑Pilot.
+- **State & Data Flow**:
+  - React hooks (`useState`, `useEffect`, `useRef`, `useCallback`) for UI state.
+  - Session‑scoped indices to **cycle personas and intents** between calls.
+  - A unified mock data module (`src/mock/app-demo-data.ts`) powering Dashboard, Analytics, Reports, and Integrations so the app always “feels alive”.
+- **Backend & Storage**:
+  - Next.js API route at `/api/call-history` for saving and reading call records.
+  - MongoDB integration via `src/lib/mongodb.ts` (optional; if unavailable, the UI still demos correctly using in‑memory data).
+- **AI Integrations** (via `src/lib/ur-agents.ts`):
+  - Spoof Agent – simulates the customer.
+  - Resolution Agent – generates real‑time suggestions from the transcript.
+  - Summary Agent – builds structured call summaries post‑call, with a robust local fallback.
+
+---
+
+### Running the Prototype
+
+1. **Install dependencies**
+
+```bash
+npm install
+```
+
+2. **Set environment variables**
+
+Copy `.env.example` to `.env` and fill in any required keys (API key for the Lyzr agents, MongoDB URI if you want persistence, etc.).
+
+3. **Start the dev server**
+
+```bash
+npm run dev
+```
+
+Then open `http://localhost:3000` in your browser.
+
+---
+
+### Demo Flow (Suggested for Sales / Stakeholders)
+
+1. **Dashboard / Analytics**
+   - Show live‑looking metrics, channels, and SLA breakdowns powered by unified demo data (no empty or zero cards).
+2. **Start Co‑Pilot**
+   - Start a call, watch persona + intent auto‑select.
+   - Show the Live Transcript, AI Suggestions, and Customer Info flows.
+   - Highlight the “Processing chat and creating summary…” state, followed by “Summary saved to Call History.”
+3. **Call History**
+   - Open the newly saved call.
+   - Point out that **customer name, account, and intent** match exactly what was used in Co‑Pilot.
+   - Review the summary and stored transcript.
+
+The goal of this prototype is to feel **production‑grade** in UX and data, even though it is running on demo services and seeded data. It is tuned for storytelling and vision demos more than raw feature breadth.
+
 # Banking Charge Dispute Application
 
 A production-quality prototype web application for a banking credit/debit card dispute system. This app demonstrates an enterprise-ready conversational interface for handling charge disputes through an intelligent banking assistant.
