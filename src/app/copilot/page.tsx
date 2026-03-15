@@ -66,18 +66,77 @@ export const SPOOF_INTENTS = [
   { value: "multi_topic", label: "Multi-topic call" },
 ] as const;
 
+/** Intent-specific opening instructions so the spoof customer says a different type of query each call (not always equipment/scissor lift). */
+function getIntentOpeningInstruction(intentValue: string): string {
+  const instructions: Record<string, string> = {
+    new_reservation:
+      "You are calling to RESERVE equipment for an upcoming job (e.g. forklift, scissor lift, or excavator for a future start date). Say you need to book or reserve equipment and mention the type and timeframe. Do NOT mention broken equipment or current rentals that are not working.",
+    billing_inquiry:
+      "You are calling about a BILL or INVOICE — e.g. an unexpected charge, a line item you don't understand, or a question about your last invoice. Mention an invoice number or charge type. Do NOT mention equipment breakdowns, scissor lifts that won't raise, or needing a technician.",
+    contract_inquiry:
+      "You are calling about your CONTRACT or rental agreement — e.g. terms, duration, or paperwork. Do NOT mention equipment failures or scissor lifts.",
+    general_inquiry:
+      "You are calling with a general question — e.g. hours, branch location, or how to place an order. Keep it broad. Do NOT mention a specific equipment problem like a scissor lift not raising.",
+    invoice_dispute:
+      "You are calling to DISPUTE a charge on your invoice — e.g. a cleaning fee, damage charge, or fuel charge you disagree with. Mention the invoice and the charge. Do NOT mention equipment not working or needing a technician.",
+    equipment_troubleshooting:
+      "You are calling because RENTED EQUIPMENT is NOT WORKING — e.g. a scissor lift won't raise, an excavator won't start, or similar. Describe the problem and ask for a technician or equipment swap. This is the ONLY intent where you should mention equipment malfunction.",
+    off_rent:
+      "You are calling to schedule PICKUP or OFF-RENT — you are done with the equipment and want to return it or have it picked up. Mention the equipment and when you need pickup. Do NOT say the equipment is broken.",
+    rental_extension:
+      "You are calling to EXTEND your current rental — you need the equipment longer and want to add days or weeks. Mention the equipment and how much longer you need. Do NOT mention the equipment is broken.",
+    delivery_scheduling:
+      "You are calling to schedule or change a DELIVERY — e.g. delivery time, address, or gate code for an upcoming or existing delivery. Do NOT mention equipment problems.",
+    rpp_question:
+      "You are calling to ask about RPP (Rental Protection Plan) — what it covers, cost, or whether you have it. Do NOT mention scissor lifts not working or equipment failures.",
+    account_setup:
+      "You are calling to SET UP a new account or get credit approval — first-time caller, need to know what documents or process. Do NOT mention equipment breakdowns.",
+    operator_certification:
+      "You are calling about OPERATOR CERTIFICATION or training — e.g. your crew needs to get certified for aerial or forklift. Do NOT mention equipment currently broken.",
+    equipment_swap:
+      "You are calling to SWAP or REPLACE equipment that is not working — you need a replacement unit sent out. Briefly state the problem and that you need a swap. Keep it distinct from a general troubleshooting question by focusing on 'need a replacement today.'",
+    total_control_support:
+      "You are calling about TOTAL CONTROL (portal/website) — e.g. can't log in, report not showing data, or need help with the online system. Do NOT mention physical equipment on a jobsite.",
+    branch_transfer:
+      "You are calling about moving equipment between BRANCHES or a different pickup/return location. Do NOT mention equipment not working.",
+    competitor_mention:
+      "You are calling and MENTIONING A COMPETITOR — e.g. Sunbelt gave you a quote and you want to compare or match. Do NOT mention equipment failures.",
+    multi_topic:
+      "You are calling with MULTIPLE topics — e.g. one question about an invoice and another about extending a rental. Combine two different topics in one opening. Do NOT lead with a scissor lift that won't raise.",
+  };
+  return (
+    instructions[intentValue] ??
+    `You are calling about ${intentValue.replace(/_/g, " ")}. State your reason clearly. Do NOT mention a scissor lift that won't raise unless this intent is specifically equipment troubleshooting.`
+  );
+}
+
 function buildSpoofInitialMessage(
   personaDescription: string,
   intentDescription: string,
+  intentValue: string,
   isrName: string,
   agentGreeting: string
 ): string {
   const isr = isrName.trim() || "Sarah";
-  return `The ISR (agent) has just said: "${agentGreeting}" You are ${personaDescription}, a United Rentals customer calling about ${intentDescription}. Stay focused on this topic throughout the conversation. Reply with ONLY your first line as the customer: greet, state your name, and briefly state your reason for calling (e.g. ${intentDescription}). No prefixes or labels.`;
+  const openingInstruction = getIntentOpeningInstruction(intentValue);
+  return `The ISR (agent) has just said: "${agentGreeting}"
+
+You are ${personaDescription}, a United Rentals customer. For THIS call you must stick to ONE specific reason for calling.
+
+REQUIRED — Your opening line must do the following (and nothing else):
+${openingInstruction}
+
+Reply with ONLY your first line as the customer: greet, state your name, and then state your reason for calling as specified above. No prefixes or labels. Do not mention equipment breakdowns or scissor lifts unless the required reason above is about equipment not working.`;
 }
 
-function buildSpoofContinuation(conversationBlurb: string): string {
-  return `Conversation so far:\n\n${conversationBlurb}\n\nYou are the customer. Reply with ONLY your next line (1-4 sentences). If you are satisfied with the resolution or wrapping up, end your reply with [CALL_END].`;
+function buildSpoofContinuation(
+  conversationBlurb: string,
+  intentLabel?: string
+): string {
+  const topicReminder = intentLabel
+    ? ` This call is about: ${intentLabel}. Stay on that topic only.\n\n`
+    : "";
+  return `Conversation so far:\n\n${conversationBlurb}\n\n${topicReminder}You are the customer. Reply with ONLY your next line (1-4 sentences). If you are satisfied with the resolution or wrapping up, end your reply with [CALL_END].`;
 }
 
 function buildClosingPrompt(
@@ -287,6 +346,7 @@ export default function CoPilotPage() {
       let spoofMessage = buildSpoofInitialMessage(
         personaLabel,
         intentLabel,
+        intent,
         isrName,
         agentGreeting
       );
@@ -304,8 +364,11 @@ export default function CoPilotPage() {
 
         let customerLine: string;
         try {
-          // Pass only the latest agent line into the spoof agent
-          spoofMessage = buildSpoofContinuation(`ISR: ${lastAgentLine}`);
+          // Pass only the latest agent line into the spoof agent; remind of intent so customer stays on topic
+          spoofMessage = buildSpoofContinuation(
+            `ISR: ${lastAgentLine}`,
+            intentLabel
+          );
           customerLine = await getSpoofAgentReply(spoofMessage, spoofSid);
         } catch (err) {
           console.error("Spoof agent error:", err);
@@ -319,7 +382,10 @@ export default function CoPilotPage() {
           .replace(/\s*\[CALL_END\]\s*/gi, "")
           .trim();
         if (!customerLine && !callEnded) {
-          spoofMessage = buildSpoofContinuation(blurb(transcriptRef.current));
+          spoofMessage = buildSpoofContinuation(
+            blurb(transcriptRef.current),
+            intentLabel
+          );
           turnCount++;
           continue;
         }
@@ -431,7 +497,10 @@ export default function CoPilotPage() {
           timestamp: new Date(),
         });
 
-        spoofMessage = buildSpoofContinuation(blurb(transcriptRef.current));
+        spoofMessage = buildSpoofContinuation(
+          blurb(transcriptRef.current),
+          intentLabel
+        );
         turnCount++;
       }
 
