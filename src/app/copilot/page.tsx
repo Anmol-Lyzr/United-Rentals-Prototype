@@ -39,14 +39,14 @@ const MAX_TURNS = 5;
 /** Fallback when spoof agent fails to return a closing customer line */
 const FALLBACK_CUSTOMER_DECLINE = "No thank you.";
 
-export const SPOOF_PERSONAS = [
+const SPOOF_PERSONAS = [
   { value: "happy_customer", label: "Happy customer" },
   { value: "angry_customer", label: "Angry customer" },
   { value: "confused_customer", label: "Confused customer" },
   { value: "neutral_customer", label: "Neutral customer" },
 ] as const;
 
-export const SPOOF_INTENTS = [
+const SPOOF_INTENTS = [
   { value: "new_reservation", label: "New reservation" },
   { value: "billing_inquiry", label: "Billing inquiry" },
   { value: "contract_inquiry", label: "Contract inquiry" },
