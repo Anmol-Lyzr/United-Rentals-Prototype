@@ -98,12 +98,16 @@ export async function POST(req: Request) {
     };
 
     const collection = await getCallHistoryCollection();
-    if (collection) {
-      await collection.insertOne({
-        ...recordWithTranscript,
-        createdAt: new Date().toISOString(),
-      });
+    if (!collection) {
+      return NextResponse.json(
+        { error: "Call History storage is unavailable. Summary was generated but not saved." },
+        { status: 503 }
+      );
     }
+    await collection.insertOne({
+      ...recordWithTranscript,
+      createdAt: new Date().toISOString(),
+    });
 
     return NextResponse.json(recordWithTranscript);
   } catch (err) {

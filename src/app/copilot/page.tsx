@@ -181,6 +181,8 @@ export default function CoPilotPage() {
   const [currentCustomerName, setCurrentCustomerName] = useState<string | undefined>(undefined);
   const [currentCustomerAccount, setCurrentCustomerAccount] = useState<string | undefined>(undefined);
   const [hasCustomerSpoken, setHasCustomerSpoken] = useState(false);
+  const [summaryError, setSummaryError] = useState<string | null>(null);
+  const [summaryUsedFallback, setSummaryUsedFallback] = useState(false);
 
   const spoofLoopAbortedRef = useRef(false);
   const sessionIdRef = useRef(sessionId);
@@ -373,7 +375,13 @@ export default function CoPilotPage() {
         } catch (err) {
           console.error("Spoof agent error:", err);
           setIsSuggestionsLoading(false);
-          return;
+          // Ensure we still save a summary: add fallback line and exit loop so onCallResolved runs
+          addToTranscript({
+            speaker: "customer",
+            text: "[Call ended unexpectedly.]",
+            timestamp: new Date(),
+          });
+          break;
         }
         if (spoofLoopAbortedRef.current) return;
 
@@ -505,8 +513,9 @@ export default function CoPilotPage() {
       }
 
       setIsSuggestionsLoading(false);
-      if (transcriptRef.current.length > 0) {
-        onCallResolved(transcriptRef.current);
+      const snapshot = transcriptRef.current.length > 0 ? [...transcriptRef.current] : [];
+      if (snapshot.length > 0) {
+        onCallResolved(snapshot);
       }
     },
     [addToTranscript, updateAiInsightsFromSuggestion]
@@ -566,6 +575,7 @@ export default function CoPilotPage() {
       spoofPersonaLabel?: string,
       spoofIntent?: string
     ) => {
+      let summary: CallRecord | null = null;
       try {
         console.log("[CoPilot] saveCallAndGetSummary starting", {
           sessionId: sid,
@@ -575,7 +585,7 @@ export default function CoPilotPage() {
         });
         // First, call the Summary Agent directly from the browser so it is visible
         // in the Network tab and we can inspect the payload/response.
-        const summary = await generateCallSummary(
+        summary = await generateCallSummary(
           fullTranscript,
           sid,
           customerName,
@@ -596,13 +606,30 @@ export default function CoPilotPage() {
           summary.call_summary.customer_account = customerAccount;
           summary.account_id = customerAccount;
         }
+        // #region agent log
+        fetch("http://127.0.0.1:7594/ingest/a2672ed4-520f-49e8-9f0d-1425ca65bd21", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "1be390" },
+          body: JSON.stringify({
+            sessionId: "1be390",
+            location: "copilot:saveCallAndGetSummary:afterGenerate",
+            message: "Summary received",
+            data: { transcriptLen: fullTranscript.length, sentiment: summary.customer_health?.sentiment },
+            timestamp: Date.now(),
+            hypothesisId: "E",
+          }),
+        }).catch(() => {});
+        // #endregion
         console.log("[CoPilot] generateCallSummary completed", {
           callId: summary.call_summary.call_id,
           customerName: summary.call_summary.customer_name,
           customerAccount: summary.call_summary.customer_account,
         });
 
-        // Then, persist the summary (and transcript) to MongoDB via our API route.
+        const usedLocalFallback = !!summary._usedLocalFallback;
+        const recordForApi = { ...summary };
+        delete (recordForApi as Record<string, unknown>)._usedLocalFallback;
+
         const res = await fetch("/api/call-history", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -611,7 +638,7 @@ export default function CoPilotPage() {
             sessionId: sid,
             customerName: customerName ?? undefined,
             customerAccount: customerAccount ?? undefined,
-            callRecord: summary,
+            callRecord: recordForApi,
             spoofPersona: spoofPersonaLabel ?? undefined,
             spoofIntent: spoofIntent ?? undefined,
           }),
@@ -620,21 +647,21 @@ export default function CoPilotPage() {
           const record = await res.json();
           console.log("[CoPilot] saveCallAndGetSummary received record from API", {
             callId: record?.call_summary?.call_id,
-            customerName: record?.call_summary?.customer_name,
-            customerAccount: record?.call_summary?.customer_account,
+            usedLocalFallback,
           });
-          // Prefer the server-confirmed record (with stored_transcript, createdAt, etc.)
-          return record;
+          return { record: { ...record, _usedLocalFallback: summary._usedLocalFallback }, savedToHistory: true, usedLocalFallback };
         }
+        const errBody = await res.text();
         console.error("[CoPilot] saveCallAndGetSummary API error", {
           status: res.status,
+          body: errBody?.slice(0, 200),
         });
-        // Even if the API call fails, return the summary from the agent so UI can still show it.
-        return summary;
+        return { record: summary, savedToHistory: false, usedLocalFallback };
       } catch (err) {
         console.error("[CoPilot] saveCallAndGetSummary failed", err);
+        const usedLocalFallback = !!summary?._usedLocalFallback;
+        return { record: summary ?? null, savedToHistory: false, usedLocalFallback };
       }
-      throw new Error("Failed to save call history via API");
     },
     []
   );
@@ -650,6 +677,20 @@ export default function CoPilotPage() {
       const fullTranscript = transcript
         .map((e) => `${e.speaker}: ${e.text}`)
         .join("\n");
+      // #region agent log
+      fetch("http://127.0.0.1:7594/ingest/a2672ed4-520f-49e8-9f0d-1425ca65bd21", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "1be390" },
+        body: JSON.stringify({
+          sessionId: "1be390",
+          location: "copilot:handleCallResolved",
+          message: "Call resolved (natural end), saving summary",
+          data: { entryCount: transcript.length, transcriptLen: fullTranscript.length },
+          timestamp: Date.now(),
+          hypothesisId: "B",
+        }),
+      }).catch(() => {});
+      // #endregion
       const sid = sessionIdRef.current;
       // Use customer name and account saved from Customer Info when the call started
       const savedName = callCustomerNameRef.current;
@@ -658,8 +699,9 @@ export default function CoPilotPage() {
         SPOOF_PERSONAS.find((p) => p.value === selectedPersona)?.label;
       setCurrentCustomerName(savedName);
       setCurrentCustomerAccount(savedAccount);
+      setSummaryError(null);
       try {
-        const summary = await saveCallAndGetSummary(
+        const { record, savedToHistory, usedLocalFallback } = await saveCallAndGetSummary(
           fullTranscript,
           sid,
           savedName,
@@ -667,24 +709,37 @@ export default function CoPilotPage() {
           personaLabel,
           selectedIntent
         );
+        if (!record) {
+          setSummaryError("Summary could not be generated.");
+          return;
+        }
         console.log("[CoPilot] handleCallResolved summary received", {
-          callId: summary?.call_summary?.call_id,
-          customerName: summary?.call_summary?.customer_name,
-          customerAccount: summary?.call_summary?.customer_account,
+          callId: record?.call_summary?.call_id,
+          savedToHistory,
+          usedLocalFallback,
         });
         if (savedName) {
-          summary.call_summary.customer_name = savedName;
-          summary.account_name = savedName;
+          record.call_summary.customer_name = savedName;
+          record.account_name = savedName;
         }
         if (savedAccount) {
-          summary.call_summary.customer_account =
-            savedAccount ?? summary.call_summary.customer_account;
-          summary.account_id = savedAccount;
+          record.call_summary.customer_account =
+            savedAccount ?? record.call_summary.customer_account;
+          record.account_id = savedAccount;
         }
-        setCurrentCallRecord(summary);
-        setSummarySaved(true);
+        setCurrentCallRecord(record);
+        setSummaryUsedFallback(!!usedLocalFallback);
+        if (savedToHistory) {
+          setSummarySaved(true);
+          setSummaryError(null);
+        } else {
+          setSummarySaved(false);
+          setSummaryError("Summary could not be saved to Call History.");
+        }
       } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
         console.error("Summary generation failed:", err);
+        setSummaryError(msg || "Summary generation failed.");
       }
     },
     [saveCallAndGetSummary, selectedPersona, selectedIntent]
@@ -696,6 +751,8 @@ export default function CoPilotPage() {
     setSuggestion(null);
     setAiCustomerInsights(null);
     setSummarySaved(false);
+    setSummaryError(null);
+    setSummaryUsedFallback(false);
     setCallDuration(0);
     setCustomInput("");
     spoofLoopAbortedRef.current = false;
@@ -759,6 +816,24 @@ export default function CoPilotPage() {
     spoofLoopAbortedRef.current = true;
     cancelTTS();
     agentSpeech.cancelWaiting();
+    // #region agent log
+    const stateLen = transcriptEntries.length;
+    const refLen = transcriptRef.current.length;
+    const fullFromState = transcriptEntries.map((e) => `${e.speaker}: ${e.text}`).join("\n");
+    const fullFromRef = transcriptRef.current.map((e) => `${e.speaker}: ${e.text}`).join("\n");
+    fetch("http://127.0.0.1:7594/ingest/a2672ed4-520f-49e8-9f0d-1425ca65bd21", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "1be390" },
+      body: JSON.stringify({
+        sessionId: "1be390",
+        location: "copilot:handleEndCall",
+        message: "End call transcript source",
+        data: { stateLen, refLen, stateTranscriptLen: fullFromState.length, refTranscriptLen: fullFromRef.length, refHasMore: refLen > stateLen },
+        timestamp: Date.now(),
+        hypothesisId: "B",
+      }),
+    }).catch(() => {});
+    // #endregion
     if (transcriptEntries.length > 0) {
       setCallStatus("summarizing");
       const fullTranscript = transcriptEntries
@@ -779,26 +854,38 @@ export default function CoPilotPage() {
         personaLabel,
         selectedIntent
       )
-        .then((summary) => {
+        .then(({ record, savedToHistory, usedLocalFallback }) => {
+          if (!record) {
+            setSummaryError("Summary could not be generated.");
+            return;
+          }
           console.log("[CoPilot] handleEndCall summary received", {
-            callId: summary?.call_summary?.call_id,
-            customerName: summary?.call_summary?.customer_name,
-            customerAccount: summary?.call_summary?.customer_account,
+            callId: record?.call_summary?.call_id,
+            savedToHistory,
+            usedLocalFallback,
           });
           if (savedName) {
-            summary.call_summary.customer_name = savedName;
-            summary.account_name = savedName;
+            record.call_summary.customer_name = savedName;
+            record.account_name = savedName;
           }
           if (savedAccount) {
-            summary.call_summary.customer_account =
-              savedAccount ?? summary.call_summary.customer_account;
-            summary.account_id = savedAccount;
+            record.call_summary.customer_account =
+              savedAccount ?? record.call_summary.customer_account;
+            record.account_id = savedAccount;
           }
-          setCurrentCallRecord(summary);
-          setSummarySaved(true);
+          setCurrentCallRecord(record);
+          setSummaryUsedFallback(!!usedLocalFallback);
+          if (savedToHistory) {
+            setSummarySaved(true);
+            setSummaryError(null);
+          } else {
+            setSummarySaved(false);
+            setSummaryError("Summary could not be saved to Call History.");
+          }
         })
         .catch((err) => {
           console.error("Summary generation failed:", err);
+          setSummaryError(err instanceof Error ? err.message : "Summary generation failed.");
         })
         .finally(() => setCallStatus("ended"));
     } else {
@@ -949,9 +1036,19 @@ export default function CoPilotPage() {
                   )}
                   {callStatus === "ended" && (
                     <>
-                      {summarySaved && (
-                        <span className="text-sm text-emerald-600 font-medium">
-                          Summary saved to Call History.
+                      {summarySaved && !summaryUsedFallback && (
+                        <span className="text-sm text-emerald-700 font-semibold">
+                          Summary saved successfully.
+                        </span>
+                      )}
+                      {summarySaved && summaryUsedFallback && (
+                        <span className="text-sm text-amber-700 font-semibold" title="AI summary unavailable; backup summary was saved.">
+                          Summary saved (backup summary — AI unavailable).
+                        </span>
+                      )}
+                      {summaryError && (
+                        <span className="text-sm text-red-700 font-semibold" title={summaryError}>
+                          Summary failed: {summaryError}
                         </span>
                       )}
                       <button

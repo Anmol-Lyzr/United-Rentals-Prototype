@@ -488,45 +488,162 @@ function buildLocalFallbackSummary(
   }
 
   const lower = trimmedTranscript.toLowerCase();
-  let category = "general_inquiry";
 
+  // ── 1) Infer high‑level intent (category) from keywords ─────────────────────
+  let category: string = "general_inquiry";
+  let intentPhrase: string = "a general question about their rental needs";
+
+  // Prefer highly specific intents first so we don't mis-classify
   if (
+    lower.includes("transfer my rental") ||
+    lower.includes("transfer the rental") ||
+    lower.includes("rental transfer") ||
+    (lower.includes("transfer") && lower.includes("pickup"))
+  ) {
+    category = "rental_transfer";
+    intentPhrase =
+      "transferring an existing rental between branches or jobsites and confirming any transfer fees or pickup timing";
+  } else if (
+    lower.includes("invoice dispute") ||
+    lower.includes("dispute") ||
+    (lower.includes("invoice") && lower.includes("charge"))
+  ) {
+    category = "billing_dispute";
+    intentPhrase = "disputing a billing charge on an invoice";
+  } else if (
     lower.includes("invoice") ||
     lower.includes("billing") ||
-    lower.includes("charge") ||
+    lower.includes("statement") ||
     lower.includes("payment")
   ) {
     category = "billing_inquiry";
+    intentPhrase = "clarifying billing, invoice details, or charges";
   } else if (
-    lower.includes("extension") ||
-    lower.includes("extend") ||
-    lower.includes("extra day")
+    lower.includes("extend my rental") ||
+    lower.includes("rental extension") ||
+    lower.includes("extend the rental") ||
+    lower.includes("extra day") ||
+    lower.includes("keep it longer")
   ) {
     category = "rental_extension";
+    intentPhrase = "requesting an extension to an existing rental";
   } else if (
     lower.includes("off-rent") ||
+    lower.includes("off rent") ||
     lower.includes("pickup") ||
-    lower.includes("return")
+    lower.includes("pick up the equipment") ||
+    lower.includes("return the equipment")
   ) {
     category = "off_rent";
+    intentPhrase = "taking equipment off‑rent and arranging pickup/return";
   } else if (
     lower.includes("not working") ||
-    lower.includes("issue") ||
+    lower.includes("isn't working") ||
+    lower.includes("doesn't start") ||
     lower.includes("error code") ||
+    lower.includes("issue with the equipment") ||
     lower.includes("troubleshoot")
   ) {
     category = "equipment_troubleshooting";
+    intentPhrase = "troubleshooting equipment that is not working as expected";
+  } else if (
+    lower.includes("delivery window") ||
+    lower.includes("delivery time") ||
+    lower.includes("delivery eta") ||
+    lower.includes("drop off") ||
+    lower.includes("when will it arrive")
+  ) {
+    category = "delivery_scheduling";
+    intentPhrase = "confirming delivery timing and logistics";
+  } else if (
+    lower.includes("operator training") ||
+    lower.includes("operator certification") ||
+    lower.includes("safety training") ||
+    lower.includes("osha")
+  ) {
+    category = "operator_training";
+    intentPhrase = "discussing operator training and certification requirements";
+  } else if (
+    lower.includes("new account") ||
+    lower.includes("set up an account") ||
+    lower.includes("credit application")
+  ) {
+    category = "account_setup";
+    intentPhrase = "setting up or updating a customer account and credit profile";
   }
 
+  // ── 2) Extract a concise customer opening + key details ─────────────────────
   const lines = trimmedTranscript
     .split(/\r?\n/)
     .map((l) => l.trim())
     .filter(Boolean);
-  const firstFewLines = lines.slice(0, 4).join(" ");
 
-  const summaryText = `${safeName} contacted United Rentals regarding a ${category
-    .replace(/_/g, " ")
-    .toLowerCase()}. Key parts of the conversation included: ${firstFewLines}`;
+  const customerUtterances = lines
+    .filter((l) => l.toLowerCase().startsWith("customer:"))
+    .map((l) => l.replace(/^customer\s*:\s*/i, "").trim());
+  const agentUtterances = lines
+    .filter((l) => l.toLowerCase().startsWith("agent:"))
+    .map((l) => l.replace(/^agent\s*:\s*/i, "").trim());
+
+  const openingCustomerLine =
+    customerUtterances[0] || customerUtterances[1] || lines[0] || "";
+
+  // Try to pick out an obvious equipment or invoice/contract reference
+  const equipmentLikeLine =
+    lines.find((l) =>
+      /scissor lift|boom lift|forklift|generator|excavator|cat\s*\d{2,3}|lift\b/i.test(
+        l
+      )
+    ) || "";
+
+  const invoiceOrContractMatch = trimmedTranscript.match(
+    /(invoice\s*(no\.?|number)?\s*[:#]?\s*\w+|\bcontract\b\s*(no\.?|number)?\s*[:#]?\s*\w+)/i
+  );
+  const invoiceOrContract = invoiceOrContractMatch
+    ? invoiceOrContractMatch[0]
+    : "";
+
+  const firstAgentHelpfulLine =
+    agentUtterances.find((l) =>
+      /(i can help|let me check|i can look that up|i can pull that up)/i.test(l)
+    ) || agentUtterances[0] || "";
+
+  // Build a short narrative that feels like the summariser agent output
+  const narrativeParts: string[] = [];
+  narrativeParts.push(
+    `${safeName} contacted United Rentals regarding ${intentPhrase}.`
+  );
+
+  if (openingCustomerLine) {
+    narrativeParts.push(
+      `The customer explained that ${openingCustomerLine.replace(
+        /^i\b/i,
+        "they"
+      )}`
+    );
+  }
+
+  if (equipmentLikeLine) {
+    narrativeParts.push(
+      `Key equipment or job details mentioned included: ${equipmentLikeLine
+        .replace(/^customer:\s*/i, "")
+        .replace(/^agent:\s*/i, "")}`
+    );
+  }
+
+  if (invoiceOrContract) {
+    narrativeParts.push(`The discussion referenced ${invoiceOrContract}.`);
+  }
+
+  if (firstAgentHelpfulLine) {
+    narrativeParts.push(
+      `The ISR responded by ${firstAgentHelpfulLine
+        .replace(/^i\b/i, "confirming they would")
+        .replace(/^we\b/i, "the team would")}.`
+    );
+  }
+
+  const summaryText = narrativeParts.join(" ");
 
   return { summaryText, category };
 }
@@ -537,6 +654,21 @@ export async function generateCallSummary(
   customerName?: string,
   customerAccount?: string
 ): Promise<CallRecord> {
+  // #region agent log
+  const transcriptLen = typeof fullTranscript === "string" ? fullTranscript.trim().length : 0;
+  fetch("http://127.0.0.1:7594/ingest/a2672ed4-520f-49e8-9f0d-1425ca65bd21", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "1be390" },
+    body: JSON.stringify({
+      sessionId: "1be390",
+      location: "ur-agents.ts:generateCallSummary:entry",
+      message: "Summary generation start",
+      data: { transcriptLen, sessionId: sessionId?.slice(0, 20), hasTranscript: !!fullTranscript },
+      timestamp: Date.now(),
+      hypothesisId: "E",
+    }),
+  }).catch(() => {});
+  // #endregion
   console.log("[SummaryAgent] generateCallSummary start", {
     hasTranscript: !!fullTranscript,
     sessionId,
@@ -552,9 +684,11 @@ export async function generateCallSummary(
   let reply = "";
   let isErrorReply = false;
 
+  const MAX_ATTEMPTS = 4;
+  const RETRY_DELAY_MS = 2000;
+
   try {
-    // Make up to 2 attempts if we detect a tool/LLM-side error reply.
-    for (let attempt = 1; attempt <= 2; attempt++) {
+    for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
       const response = await fetch(API_BASE_URL, {
         method: "POST",
         headers: {
@@ -592,20 +726,40 @@ export async function generateCallSummary(
           reply.includes("GroqException") ||
           reply.includes("failed_generation"));
 
+      // #region agent log
+      if (isErrorReply) {
+        fetch("http://127.0.0.1:7594/ingest/a2672ed4-520f-49e8-9f0d-1425ca65bd21", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "1be390" },
+          body: JSON.stringify({
+            sessionId: "1be390",
+            location: "ur-agents.ts:generateCallSummary:isErrorReply",
+            message: "Lyzr returned error-like reply",
+            data: { attempt, replySnippet: String(reply).slice(0, 300), status: response?.status },
+            timestamp: Date.now(),
+            hypothesisId: "A",
+          }),
+        }).catch(() => {});
+      }
+      // #endregion
+
       if (!isErrorReply) {
         break;
       }
 
-      if (attempt < 2) {
+      if (attempt < MAX_ATTEMPTS) {
         console.warn(
-          "[SummaryAgent] Detected error-like reply from agent, retrying...",
-          { attempt, replySnippet: String(reply).slice(0, 160) }
+          "[SummaryAgent] Error-like reply, retrying after delay...",
+          { attempt, maxAttempts: MAX_ATTEMPTS, delayMs: RETRY_DELAY_MS }
         );
+        await new Promise((r) => setTimeout(r, RETRY_DELAY_MS));
       }
     }
 
     if (isErrorReply) {
-      console.warn("[SummaryAgent] Using local fallback summary after agent reply indicated an error");
+      console.warn(
+        "[SummaryAgent] Using local fallback only after all retries failed (last resort)"
+      );
       const { summaryText, category } = buildLocalFallbackSummary(
         fullTranscript,
         customerName
@@ -639,6 +793,7 @@ export async function generateCallSummary(
         follow_up_required: false,
         account_id: fallbackAccount ?? undefined,
         account_name: fallbackName !== "Unknown" ? fallbackName : undefined,
+        _usedLocalFallback: true,
       };
     }
 
@@ -647,6 +802,36 @@ export async function generateCallSummary(
       typeof data.response === "object" && data.response !== null
         ? (data.response as LyzrSummaryResponse)
         : tryParseJson<LyzrSummaryResponse>(reply);
+
+    // #region agent log
+    if (parsed) {
+      fetch("http://127.0.0.1:7594/ingest/a2672ed4-520f-49e8-9f0d-1425ca65bd21", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "1be390" },
+        body: JSON.stringify({
+          sessionId: "1be390",
+          location: "ur-agents.ts:generateCallSummary:parsed",
+          message: "Summary parsed successfully from Lyzr",
+          data: { sentiment: (parsed as any)?.customer_health?.sentiment ?? (parsed as any)?.customer?.health?.sentiment ?? "unknown" },
+          timestamp: Date.now(),
+          hypothesisId: "success",
+        }),
+      }).catch(() => {});
+    } else {
+      fetch("http://127.0.0.1:7594/ingest/a2672ed4-520f-49e8-9f0d-1425ca65bd21", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "1be390" },
+        body: JSON.stringify({
+          sessionId: "1be390",
+          location: "ur-agents.ts:generateCallSummary:parseFallback",
+          message: "Lyzr response not parseable, using fallback",
+          data: { replyStartsWithBrace: typeof reply === "string" && reply.trim().startsWith("{"), replySnippet: String(reply).slice(0, 280) },
+          timestamp: Date.now(),
+          hypothesisId: "C",
+        }),
+      }).catch(() => {});
+    }
+    // #endregion
 
     if (parsed) {
       const callDate = parsed.call_date ?? new Date().toISOString().slice(0, 10);
@@ -925,17 +1110,14 @@ export async function generateCallSummary(
       }
     }
     if (!fallbackSummary) {
-      const rawReply = typeof reply === "string" ? reply : "";
-      const looksLikeError =
-        rawReply.includes("Error in LLM") ||
-        rawReply.includes("BadRequestError") ||
-        rawReply.includes("Exception") ||
-        rawReply.includes("tool_use_failed") ||
-        rawReply.includes("invalid_request_error");
-      fallbackSummary =
-        rawReply && !looksLikeError
-          ? rawReply.slice(0, 2000)
-          : "Summary could not be generated for this call. You can review the transcript below.";
+      // When the agent reply is unusable or looks like an internal error
+      // (e.g. invalid API key), build a local heuristic summary from the
+      // actual transcript instead of surfacing an opaque error message.
+      const { summaryText } = buildLocalFallbackSummary(
+        fullTranscript,
+        fallbackName
+      );
+      fallbackSummary = summaryText;
     }
 
     return {
@@ -960,8 +1142,26 @@ export async function generateCallSummary(
         retention_risk: "none",
       },
       follow_up_required: false,
+      _usedLocalFallback: true,
     };
   } catch (error) {
+    // #region agent log
+    fetch("http://127.0.0.1:7594/ingest/a2672ed4-520f-49e8-9f0d-1425ca65bd21", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "1be390" },
+      body: JSON.stringify({
+        sessionId: "1be390",
+        location: "ur-agents.ts:generateCallSummary:catch",
+        message: "Exception in generateCallSummary",
+        data: {
+          errorMessage: error instanceof Error ? error.message : String(error),
+          errorName: error instanceof Error ? error.name : undefined,
+        },
+        timestamp: Date.now(),
+        hypothesisId: "D",
+      }),
+    }).catch(() => {});
+    // #endregion
     console.error("[SummaryAgent] Error while generating summary, using local fallback", {
       error:
         error instanceof Error ? { message: error.message, name: error.name } : String(error),
@@ -999,6 +1199,7 @@ export async function generateCallSummary(
       follow_up_required: false,
       account_id: fallbackAccount ?? undefined,
       account_name: fallbackName !== "Unknown" ? fallbackName : undefined,
+      _usedLocalFallback: true,
     };
   }
 }
