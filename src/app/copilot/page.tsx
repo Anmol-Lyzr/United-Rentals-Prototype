@@ -197,6 +197,8 @@ export default function CoPilotPage() {
     null
   );
   const [callMode, setCallMode] = useState<CallMode>("standard");
+  const [newCustomerLocationReady, setNewCustomerLocationReady] =
+    useState(false);
 
   const spoofLoopAbortedRef = useRef(false);
   const scriptedPlaybackAbortRef = useRef(false);
@@ -1004,6 +1006,7 @@ export default function CoPilotPage() {
     setHasCustomerSpoken(false);
     setRightPanelTab("chat");
     setCallMode("standard");
+    setNewCustomerLocationReady(false);
   }, []);
 
   const callStatusForControls =
@@ -1048,6 +1051,7 @@ export default function CoPilotPage() {
     setSummaryUsedFallback(false);
     setSummaryStorageNote(null);
     setIsCustomerInfoAvailable(false);
+    setNewCustomerLocationReady(false);
     setHasCustomerSpoken(false);
     setRightPanelTab("info");
     setCallMode("new_customer");
@@ -1089,11 +1093,14 @@ export default function CoPilotPage() {
           timestamp: new Date(),
         });
 
-        if (
-          entry.speaker === "customer" &&
-          entry.text.includes(NEW_CUSTOMER_LOCATION)
-        ) {
-          setIsCustomerInfoAvailable(true);
+        if (entry.speaker === "customer") {
+          if (entry.text.includes(NEW_CUSTOMER_NAME)) {
+            // Name is now known, stop the "fetching" skeleton.
+            setIsCustomerInfoAvailable(true);
+          }
+          if (entry.text.includes(NEW_CUSTOMER_LOCATION)) {
+            setNewCustomerLocationReady(true);
+          }
         }
 
         if (entry.speaker === "customer") {
@@ -1240,7 +1247,7 @@ export default function CoPilotPage() {
                   <ChevronRight className="size-4" />
                 </button>
               ) : (
-                <div className="relative w-[30vw] max-w-[420px] min-w-[260px] h-full">
+                <div className="relative w-[26vw] max-w-[360px] min-w-[240px] h-full">
                   <div className="h-full w-full border border-gray-200 rounded-2xl bg-white flex flex-col overflow-hidden shadow-[0_18px_40px_rgba(148,163,184,0.35)]">
                     <TranscriptFeed
                       entries={transcriptEntries}
@@ -1471,6 +1478,11 @@ export default function CoPilotPage() {
                             callMode === "new_customer"
                               ? "minimalNewCustomer"
                               : "default"
+                          }
+                          locationReady={
+                            callMode === "new_customer"
+                              ? newCustomerLocationReady
+                              : true
                           }
                         />
                       ) : (

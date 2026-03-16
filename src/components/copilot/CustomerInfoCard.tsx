@@ -89,12 +89,15 @@ export function CustomerInfoCard({
   isWaitingForCall,
   isLoading,
   mode = "default",
+  locationReady = true,
 }: {
   record?: CallRecord | null;
   personaLabel?: string;
   isWaitingForCall?: boolean;
   isLoading?: boolean;
   mode?: "default" | "minimalNewCustomer";
+  /** For new-customer demo: true once the full jobsite line has appeared in the transcript. */
+  locationReady?: boolean;
 }) {
   const personaCustomer = !record
     ? getCustomerInfoForPersona(personaLabel)
@@ -159,6 +162,16 @@ export function CustomerInfoCard({
     }
   }, [accountId]);
 
+  // Persist KB saved state for new customer demo so it survives panel collapse.
+  useEffect(() => {
+    if (mode !== "minimalNewCustomer") return;
+    if (typeof window === "undefined") return;
+    const stored = window.sessionStorage.getItem("ur_new_customer_kb_saved");
+    if (stored === "1") {
+      setIsKbSaved(true);
+    }
+  }, [mode]);
+
   if (isWaitingForCall) {
     return (
       <section className="px-4 pt-4 pb-4 border-b border-[#e5e7eb] bg-gradient-to-b from-white via-[#f5f3ff] to-[#eef2ff] flex items-center justify-center">
@@ -172,22 +185,49 @@ export function CustomerInfoCard({
   }
 
   if (isLoading) {
+    if (mode === "minimalNewCustomer") {
+      return (
+        <section className="px-4 pt-4 pb-4 border-b border-[#e5e7eb] bg-gradient-to-b from-white via-[#f5f3ff] to-[#eef2ff]">
+          <div className="rounded-xl border border-[#e5e7eb] bg-white/85 overflow-hidden">
+            <div className="px-3.5 py-2.5 border-b border-slate-200/70 bg-white/70 flex items-center gap-2">
+              <div className="size-4 border-2 border-indigo-200 border-t-indigo-500 rounded-full animate-spin" />
+              <p className="text-[11px] font-semibold text-slate-600 truncate">
+                Listening to transcript to fetch customer details…
+              </p>
+            </div>
+            <div className="px-3.5 py-3 flex items-start gap-3">
+              <div className="relative flex size-10 shrink-0 items-center justify-center rounded-full bg-[#e5e7ff] text-[#4f46e5] text-sm font-semibold">
+                --
+              </div>
+              <div className="min-w-0 space-y-1.5">
+                <p className="text-sm font-semibold text-slate-400 truncate">
+                  Customer name · fetching…
+                </p>
+                <p className="text-[11px] text-slate-400 flex items-center gap-1">
+                  <MapPin className="size-3 text-slate-300" />
+                  <span className="truncate">Location · fetching…</span>
+                </p>
+              </div>
+            </div>
+          </div>
+        </section>
+      );
+    }
     return (
       <section className="px-4 pt-4 pb-4 border-b border-[#e5e7eb] bg-gradient-to-b from-white via-[#f5f3ff] to-[#eef2ff] flex items-center justify-center">
         <div className="flex items-center gap-2 text-xs text-slate-600">
           <div className="size-4 border-2 border-indigo-200 border-t-indigo-500 rounded-full animate-spin" />
-          <span>
-            {mode === "minimalNewCustomer"
-              ? "Listening for customer name and jobsite..."
-              : "Fetching customer details..."}
-          </span>
+          <span>Fetching customer details...</span>
         </div>
       </section>
     );
   }
 
   const addressLike =
-    customer.location && customer.location.trim() !== "" && customer.location.trim() !== "—"
+    customer.location &&
+    customer.location.trim() !== "" &&
+    customer.location.trim() !== "—" &&
+    (mode !== "minimalNewCustomer" || locationReady)
       ? customer.location.trim()
       : null;
   const gmapHref = addressLike
@@ -207,20 +247,30 @@ export function CustomerInfoCard({
                 System fetched customer details
               </p>
             </div>
-            {isKbSaved ? (
-              <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 border border-emerald-100 px-2 py-0.5 text-[10px] font-semibold text-emerald-700 shrink-0">
-                <CheckCircle2 className="size-3" />
-                Saved
-              </span>
-            ) : (
-              <button
-                type="button"
-                onClick={() => setIsKbSaved(true)}
-                className="shrink-0 inline-flex items-center rounded-full bg-[#eef2ff] border border-[#e0e7ff] px-2.5 py-1 text-[10px] font-semibold text-[#4f46e5] hover:bg-white transition-colors"
-              >
-                Save to knowledge base
-              </button>
-            )}
+            {locationReady ? (
+              isKbSaved ? (
+                <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 border border-emerald-100 px-2 py-0.5 text-[10px] font-semibold text-emerald-700 shrink-0">
+                  <CheckCircle2 className="size-3" />
+                  Saved
+                </span>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsKbSaved(true);
+                    if (typeof window !== "undefined") {
+                      window.sessionStorage.setItem(
+                        "ur_new_customer_kb_saved",
+                        "1"
+                      );
+                    }
+                  }}
+                  className="shrink-0 inline-flex items-center rounded-full bg-[#eef2ff] border border-[#e0e7ff] px-2.5 py-1 text-[10px] font-semibold text-[#4f46e5] hover:bg-white transition-colors"
+                >
+                  Save to knowledge base
+                </button>
+              )
+            ) : null}
           </div>
 
           <div className="px-3.5 py-3 flex items-start gap-3">
@@ -232,12 +282,16 @@ export function CustomerInfoCard({
               <p className="text-sm font-semibold text-slate-900 truncate">
                 {customer.name}
               </p>
-              {customer.location && (
-                <p className="text-[11px] text-slate-600 flex items-center gap-1">
-                  <MapPin className="size-3 text-indigo-500" />
-                  <span className="truncate">{customer.location}</span>
-                </p>
-              )}
+              <p className="text-[11px] text-slate-600 flex items-center gap-1">
+                <MapPin className="size-3 text-indigo-500" />
+                {addressLike ? (
+                  <span className="truncate">{addressLike}</span>
+                ) : (
+                  <span className="truncate text-slate-400">
+                    Location · fetching…
+                  </span>
+                )}
+              </p>
               {gmapHref && (
                 <a
                   href={gmapHref}
