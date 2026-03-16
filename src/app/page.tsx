@@ -87,7 +87,10 @@ export default function DashboardPage() {
         day: new Date(point.date),
         count: point.total,
       }));
-      const max = series.reduce((m, p) => (p.count > m ? p.count : m), 0);
+      const max = Math.max(
+        series.reduce((m, p) => (p.count > m ? p.count : m), 0),
+        1
+      );
       const todayCalls = demo.volume[demo.volume.length - 1]?.total ?? 0;
       return {
         totalConversations: demo.totalConversations,
@@ -143,7 +146,10 @@ export default function DashboardPage() {
       }).length;
       return { day, count };
     });
-    const max = series.reduce((m, p) => (p.count > m ? p.count : m), 0);
+    const max = Math.max(
+      series.reduce((m, p) => (p.count > m ? p.count : m), 0),
+      1
+    );
 
     return {
       totalConversations: total,
@@ -195,7 +201,7 @@ export default function DashboardPage() {
                   className="gap-2 rounded-full bg-[#6366f1] hover:bg-[#4f46e5] text-xs font-semibold"
                 >
                   <Phone className="size-4" />
-                  Start Co-Pilot
+                  Call
                 </Button>
                 <Button
                   variant="outline"
@@ -243,7 +249,7 @@ export default function DashboardPage() {
         <main className="relative flex-1 min-h-0 overflow-auto px-8 py-6 space-y-5">
           {/* Overview stats row */}
           <section className="grid gap-4 md:grid-cols-4">
-            <Card className="border-none bg-white text-slate-900 shadow-md shadow-indigo-100">
+            <Card className="border-none bg-white text-slate-900 shadow-sm shadow-indigo-100/60">
               <CardContent className="pt-4 space-y-2">
                 <p className="text-[11px] uppercase tracking-[0.16em] text-slate-500">
                   Total conversations
@@ -256,7 +262,7 @@ export default function DashboardPage() {
                 </p>
               </CardContent>
             </Card>
-            <Card className="border-none bg-white text-slate-900 shadow-md shadow-indigo-100">
+            <Card className="border-none bg-white text-slate-900 shadow-sm shadow-indigo-100/60">
               <CardContent className="pt-4 space-y-2">
                 <p className="text-[11px] uppercase tracking-[0.16em] text-slate-500">
                   Avg. resolution
@@ -271,7 +277,7 @@ export default function DashboardPage() {
                 </p>
               </CardContent>
             </Card>
-            <Card className="border-none bg-white text-slate-900 shadow-md shadow-indigo-100">
+            <Card className="border-none bg-white text-slate-900 shadow-sm shadow-indigo-100/60">
               <CardContent className="pt-4 space-y-2">
                 <p className="text-[11px] uppercase tracking-[0.16em] text-slate-500">
                   AI handled
@@ -284,7 +290,7 @@ export default function DashboardPage() {
                 </p>
               </CardContent>
             </Card>
-            <Card className="border-none bg-white text-slate-900 shadow-md shadow-indigo-100">
+            <Card className="border-none bg-white text-slate-900 shadow-sm shadow-indigo-100/60">
               <CardContent className="pt-4 space-y-2">
                 <p className="text-[11px] uppercase tracking-[0.16em] text-slate-500">
                   Cost saved
@@ -322,18 +328,24 @@ export default function DashboardPage() {
               </CardHeader>
               <CardContent className="space-y-4">
                 {(() => {
-                  const series =
-                    hasData && volumeSeries.length > 0
-                      ? volumeSeries
-                      : [
-                          { day: subDays(new Date(), 6), count: 14 },
-                          { day: subDays(new Date(), 5), count: 22 },
-                          { day: subDays(new Date(), 4), count: 18 },
-                          { day: subDays(new Date(), 3), count: 26 },
-                          { day: subDays(new Date(), 2), count: 31 },
-                          { day: subDays(new Date(), 1), count: 24 },
-                          { day: new Date(), count: 19 },
-                        ];
+                  // Always use a smooth, demo-style 7-day series so the chart
+                  // looks like a continuous trend line regardless of gaps in
+                  // real call history.
+                  const demoSeries = demoAnalyticsSnapshot.volume.map((point) => ({
+                    day: new Date(point.date),
+                    count: point.total,
+                  }));
+                  const series = demoSeries.length
+                    ? demoSeries
+                    : [
+                        { day: subDays(new Date(), 6), count: 18 },
+                        { day: subDays(new Date(), 5), count: 22 },
+                        { day: subDays(new Date(), 4), count: 25 },
+                        { day: subDays(new Date(), 3), count: 23 },
+                        { day: subDays(new Date(), 2), count: 27 },
+                        { day: subDays(new Date(), 1), count: 21 },
+                        { day: new Date(), count: 22 },
+                      ];
                   const maxCount = Math.max(
                     ...series.map((p) => p.count),
                     1
@@ -357,7 +369,7 @@ export default function DashboardPage() {
                       <svg
                         viewBox={`0 0 100 ${chartHeight}`}
                         preserveAspectRatio="none"
-                        className="w-full h-[120px] block"
+                        className="w-full h-[120px] min-h-[120px] block"
                       >
                         <defs>
                           <linearGradient

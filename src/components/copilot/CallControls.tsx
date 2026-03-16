@@ -27,6 +27,8 @@ interface CallControlsProps {
   onStartCall: () => void;
   onEndCall: () => void;
   onNewCall: () => void;
+  /** Start a dedicated new-customer call (first-time caller / new project). */
+  onStartNewCustomerCall: () => void;
 }
 
 function formatDuration(seconds: number) {
@@ -50,6 +52,7 @@ export function CallControls({
   onStartCall,
   onEndCall,
   onNewCall,
+  onStartNewCustomerCall,
 }: CallControlsProps) {
   const demoDisabled = callStatus === "active" || callStatus === "connecting";
   return (
@@ -97,18 +100,28 @@ export function CallControls({
         </div>
       )}
 
-      {/* Right side: Call-to-action button */}
+      {/* Right side: Call-to-action buttons */}
       <div className="flex items-center gap-2 shrink-0 ml-auto">
         {callStatus === "ringing" || callStatus === "idle" || callStatus === "ended" ? (
-          <Button
-            onClick={callStatus === "ended" ? onNewCall : onStartCall}
-            className="rounded-full bg-[#6366f1] text-white shadow-none hover:bg-[#4f46e5] h-9 px-4 gap-2"
-          >
-            <Phone className="size-4" />
-            <span className="text-sm font-semibold">
-              {callStatus === "ended" ? "New Call" : "Pick up now"}
-            </span>
-          </Button>
+          <>
+            <Button
+              onClick={callStatus === "ended" ? onNewCall : onStartCall}
+              className="rounded-full bg-[#6366f1] text-white shadow-none hover:bg-[#4f46e5] h-9 px-4 gap-2"
+            >
+              <Phone className="size-4" />
+              <span className="text-sm font-semibold">
+                {callStatus === "ended" ? "New Call" : "Pick up now"}
+              </span>
+            </Button>
+            <Button
+              type="button"
+              onClick={onStartNewCustomerCall}
+              className="rounded-full bg-[#6366f1] text-white shadow-none hover:bg-[#4f46e5] h-9 px-4 gap-2 text-sm font-semibold"
+            >
+              <Phone className="size-4" />
+              <span>First-time caller</span>
+            </Button>
+          </>
         ) : callStatus === "connecting" ? (
           <Button
             disabled

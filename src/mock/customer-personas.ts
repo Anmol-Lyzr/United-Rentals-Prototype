@@ -55,6 +55,17 @@ const PERSONA_CUSTOMERS: Record<string, PersonaCustomerProfile> = {
     status: "active",
     personaLabel: "Happy customer",
   },
+  "new customer (construction project)": {
+    name: "Rahul Mehta",
+    account: "UR-NEW-001",
+    email: "rahul.mehta@example.com",
+    phone: "+1 (555) 015-4420",
+    location: "2450 Oak Ridge Drive, Austin, TX 78758",
+    memberSince: "First-time caller today",
+    tier: "New customer – first call",
+    status: "active",
+    personaLabel: "New customer (construction project)",
+  },
 };
 
 export function getCustomerInfoForPersona(

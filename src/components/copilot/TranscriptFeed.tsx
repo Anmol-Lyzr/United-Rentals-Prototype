@@ -8,9 +8,15 @@ import type { TranscriptEntry } from "@/types/call-records";
 interface TranscriptFeedProps {
   entries: TranscriptEntry[];
   isActive: boolean;
+  // Optional props kept for backwards compatibility; currently ignored.
+  isCollapsed?: boolean;
+  onToggleCollapsed?: () => void;
 }
 
-export function TranscriptFeed({ entries, isActive }: TranscriptFeedProps) {
+export function TranscriptFeed({
+  entries,
+  isActive,
+}: TranscriptFeedProps) {
   const bottomRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -22,8 +28,8 @@ export function TranscriptFeed({ entries, isActive }: TranscriptFeedProps) {
   return (
     <div className="flex flex-col flex-1 min-h-0 overflow-hidden">
       {/* Header */}
-      <div className="shrink-0 h-11 px-5 bg-gray-50 border-b border-gray-200 flex items-center justify-between">
-        <h3 className="text-sm font-semibold text-gray-800">
+      <div className="shrink-0 h-11 px-5 bg-gray-50 border-b border-gray-200 flex items-center justify-between gap-2">
+        <h3 className="text-sm font-semibold text-gray-800 truncate">
           Live Transcript
         </h3>
         {isActive && (

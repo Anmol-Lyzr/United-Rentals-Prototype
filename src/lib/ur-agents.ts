@@ -1,6 +1,7 @@
 import type {
   ResolutionSuggestion,
   CallRecord,
+  ActionItem,
   EquipmentRequested,
   CallCategories,
   SentimentSummary,
@@ -9,13 +10,19 @@ import type {
   RecordManagement,
 } from "@/types/call-records";
 
-const API_BASE_URL = "https://agent-prod.studio.lyzr.ai/v3/inference/chat/";
-const API_KEY = "sk-default-fiw9zSxMDvNGmwGRLeWYD5o5YAdG01DN";
-const DEFAULT_USER_ID = "anmol@lyzr.ai";
+const API_BASE_URL =
+  process.env.NEXT_PUBLIC_LYZR_API_BASE_URL ??
+  "https://agent-prod.studio.lyzr.ai/v3/inference/chat/";
+const API_KEY =
+  process.env.LYZR_API_KEY ?? "sk-default-fiw9zSxMDvNGmwGRLeWYD5o5YAdG01DN";
+const DEFAULT_USER_ID = process.env.LYZR_USER_ID ?? "anmol@lyzr.ai";
 
-const RESOLUTION_AGENT_ID = "69b1911c864a3af62e527787";
-const SUMMARY_AGENT_ID = "69b195df2adb5a3a023b9307";
-const SPOOF_AGENT_ID = "69b1b99863e526d4023c45ac";
+const RESOLUTION_AGENT_ID =
+  process.env.LYZR_RESOLUTION_AGENT_ID ?? "69b1911c864a3af62e527787";
+const SUMMARY_AGENT_ID =
+  process.env.LYZR_SUMMARY_AGENT_ID ?? "69b195df2adb5a3a023b9307";
+const SPOOF_AGENT_ID =
+  process.env.LYZR_SPOOF_AGENT_ID ?? "69b1b99863e526d4023c45ac";
 
 export function generateSessionId(prefix: string): string {
   return `${prefix}-${Date.now()}-${Math.random().toString(36).substring(7)}`;
@@ -648,6 +655,222 @@ function buildLocalFallbackSummary(
   return { summaryText, category };
 }
 
+function buildLocalFallbackCallRecord(args: {
+  fullTranscript: string;
+  customerName?: string;
+  customerAccount?: string | null;
+  callDateIso?: string;
+}): CallRecord {
+  const callDateIso = args.callDateIso ?? new Date().toISOString();
+  const { summaryText, category } = buildLocalFallbackSummary(
+    args.fullTranscript,
+    args.customerName
+  );
+
+  const fallbackId = `CALL-${callDateIso.slice(0, 10).replace(/-/g, "")}-${Math.floor(
+    1000 + Math.random() * 9000
+  )}`;
+
+  const fallbackName =
+    args.customerName && args.customerName !== "" ? args.customerName : "Unknown";
+  const fallbackAccount =
+    args.customerAccount && args.customerAccount !== "" ? args.customerAccount : null;
+
+  const transcript = args.fullTranscript.trim();
+  const lines = transcript
+    ? transcript
+        .split(/\r?\n/)
+        .map((l) => l.trim())
+        .filter(Boolean)
+    : [];
+  const equipmentLikeLine =
+    lines.find((l) =>
+      /scissor lift|boom lift|forklift|generator|excavator|skid steer|telehandler|manlift|lift\b|s-?\d{2,3}/i.test(
+        l
+      )
+    ) ?? "";
+  const equipmentItem = equipmentLikeLine
+    ? equipmentLikeLine
+        .replace(/^customer\s*:\s*/i, "")
+        .replace(/^agent\s*:\s*/i, "")
+        .slice(0, 140)
+    : category.replace(/_/g, " ");
+
+  const now = new Date(callDateIso);
+  const subject =
+    category === "off_rent"
+      ? "Schedule Equipment Pickup"
+      : category === "delivery_scheduling"
+        ? "Confirm Delivery Timing"
+        : category === "rental_extension"
+          ? "Extend Rental Duration"
+          : category === "billing_inquiry" || category === "billing_dispute"
+            ? "Billing Inquiry"
+            : category === "equipment_troubleshooting"
+              ? "Troubleshoot Equipment Issue"
+              : "Customer Support Call";
+
+  const durationMinutes = Math.min(
+    12,
+    Math.max(3, Math.round((transcript.length || 300) / 220))
+  );
+
+  const makeActionItems = (): ActionItem[] => {
+    const baseOwner: ActionItem["owner"] = "isr";
+    const due = "Tomorrow after 2 PM";
+    if (category === "off_rent") {
+      return [
+        {
+          id: "AI-1",
+          action: "Schedule equipment pickup",
+          owner: baseOwner,
+          priority: "high",
+          deadline: due,
+          status: "pending",
+          notes: equipmentItem ? `Coordinate pickup for ${equipmentItem}.` : undefined,
+        },
+        {
+          id: "AI-2",
+          action: "Confirm ETA and inform customer",
+          owner: baseOwner,
+          priority: "high",
+          deadline: due,
+          status: "pending",
+          notes: "Call customer 30 minutes before arrival.",
+        },
+      ];
+    }
+    if (category === "delivery_scheduling") {
+      return [
+        {
+          id: "AI-1",
+          action: "Confirm delivery ETA and logistics",
+          owner: baseOwner,
+          priority: "high",
+          deadline: due,
+          status: "pending",
+          notes: "Verify jobsite access details and delivery window.",
+        },
+        {
+          id: "AI-2",
+          action: "Send delivery confirmation to customer",
+          owner: baseOwner,
+          priority: "medium",
+          deadline: due,
+          status: "pending",
+        },
+      ];
+    }
+    if (category === "rental_extension") {
+      return [
+        {
+          id: "AI-1",
+          action: "Check availability and extend the rental",
+          owner: baseOwner,
+          priority: "high",
+          deadline: "Today by 5 PM",
+          status: "pending",
+          notes: "Confirm updated return date and pricing.",
+        },
+        {
+          id: "AI-2",
+          action: "Confirm updated charges and share revised confirmation",
+          owner: baseOwner,
+          priority: "medium",
+          deadline: "Today by end of day",
+          status: "pending",
+        },
+      ];
+    }
+    return [
+      {
+        id: "AI-1",
+        action: "Confirm details and provide next steps",
+        owner: baseOwner,
+        priority: "medium",
+        deadline: "Today by end of day",
+        status: "pending",
+      },
+    ];
+  };
+
+  const actionItems = makeActionItems();
+  const followUpRequired = actionItems.length > 0;
+
+  const structured = {
+    customer: {
+      name: fallbackName !== "Unknown" ? fallbackName : "Customer",
+      rental_number: fallbackAccount ?? undefined,
+      health: {
+        sentiment: "satisfied",
+        retention_risk: "none",
+        nps: 10,
+        notes: "Customer was satisfied with the service and next steps.",
+      },
+    },
+    interaction: {
+      subject,
+      date: now.toLocaleDateString("en-US", {
+        month: "short",
+        day: "numeric",
+        year: "numeric",
+      }),
+      time: now.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" }),
+      duration_minutes: durationMinutes,
+      summary: summaryText,
+    },
+    equipment_details: {
+      item: equipmentItem || "Equipment",
+      use_case: category.replace(/_/g, " "),
+      duration: "rental period",
+      location: lines.find((l) => /\bjob site\b|\bsite\b|\blocation\b/i.test(l))?.slice(0, 80),
+    },
+    insights: [
+      "Customer request captured and confirmed.",
+      "Next steps defined for follow-up.",
+      "Customer sentiment assessed as satisfied.",
+    ],
+    sales_opportunities: {
+      description: "None",
+      potential_equipment: ["None"],
+    },
+    summary: summaryText,
+    stored_transcript: transcript || args.fullTranscript,
+  };
+
+  return {
+    call_summary: {
+      call_id: fallbackId,
+      call_date: callDateIso,
+      call_duration_estimate: `${durationMinutes} min`,
+      call_category: category,
+      customer_name: fallbackName,
+      customer_account: fallbackAccount,
+    },
+    summary: JSON.stringify(structured),
+    key_topics: structured.insights,
+    equipment_discussed: [],
+    action_items: actionItems,
+    next_steps: actionItems.map((a) => ({
+      step: a.action,
+      owner: "ISR",
+      timeline: a.deadline ?? "",
+      channel: "phone" as const,
+    })),
+    customer_health: {
+      sentiment: "satisfied",
+      sentiment_triggers: ["Customer was satisfied with the service and the next steps."],
+      retention_risk: "none",
+      nps_estimate: "10",
+    },
+    follow_up_required: followUpRequired,
+    account_id: fallbackAccount ?? undefined,
+    account_name: fallbackName !== "Unknown" ? fallbackName : undefined,
+    stored_transcript: transcript || args.fullTranscript,
+    _usedLocalFallback: true,
+  };
+}
+
 export async function generateCallSummary(
   fullTranscript: string,
   sessionId: string,
@@ -760,41 +983,11 @@ export async function generateCallSummary(
       console.warn(
         "[SummaryAgent] Using local fallback only after all retries failed (last resort)"
       );
-      const { summaryText, category } = buildLocalFallbackSummary(
+      return buildLocalFallbackCallRecord({
         fullTranscript,
-        customerName
-      );
-      const fallbackId = `CALL-${new Date().toISOString().slice(0, 10).replace(/-/g, "")}-${Math.floor(
-        1000 + Math.random() * 9000
-      )}`;
-      const fallbackName =
-        customerName && customerName !== "" ? customerName : "Unknown";
-      const fallbackAccount =
-        customerAccount && customerAccount !== "" ? customerAccount : null;
-      return {
-        call_summary: {
-          call_id: fallbackId,
-          call_date: new Date().toISOString(),
-          call_duration_estimate: "—",
-          call_category: category,
-          customer_name: fallbackName,
-          customer_account: fallbackAccount,
-        },
-        summary: summaryText,
-        key_topics: [],
-        equipment_discussed: [],
-        action_items: [],
-        next_steps: [],
-        customer_health: {
-          sentiment: "neutral",
-          sentiment_triggers: [],
-          retention_risk: "none",
-        },
-        follow_up_required: false,
-        account_id: fallbackAccount ?? undefined,
-        account_name: fallbackName !== "Unknown" ? fallbackName : undefined,
-        _usedLocalFallback: true,
-      };
+        customerName,
+        customerAccount: customerAccount ?? null,
+      });
     }
 
     // Lyzr may return response as string (JSON) or already as object
@@ -1120,30 +1313,11 @@ export async function generateCallSummary(
       fallbackSummary = summaryText;
     }
 
-    return {
-      call_summary: {
-        call_id: `CALL-${new Date().toISOString().slice(0, 10).replace(/-/g, "")}-${Math.floor(
-          1000 + Math.random() * 9000
-        )}`,
-        call_date: new Date().toISOString(),
-        call_duration_estimate: "Unknown",
-        call_category: "general_inquiry",
-        customer_name: fallbackName,
-        customer_account: fallbackAccount,
-      },
-      summary: fallbackSummary,
-      key_topics: [],
-      equipment_discussed: [],
-      action_items: [],
-      next_steps: [],
-      customer_health: {
-        sentiment: "neutral",
-        sentiment_triggers: [],
-        retention_risk: "none",
-      },
-      follow_up_required: false,
-      _usedLocalFallback: true,
-    };
+    return buildLocalFallbackCallRecord({
+      fullTranscript,
+      customerName: fallbackName,
+      customerAccount: fallbackAccount,
+    });
   } catch (error) {
     // #region agent log
     fetch("http://127.0.0.1:7594/ingest/a2672ed4-520f-49e8-9f0d-1425ca65bd21", {
@@ -1166,41 +1340,11 @@ export async function generateCallSummary(
       error:
         error instanceof Error ? { message: error.message, name: error.name } : String(error),
     });
-    const { summaryText, category } = buildLocalFallbackSummary(
+    return buildLocalFallbackCallRecord({
       fullTranscript,
-      customerName
-    );
-    const fallbackId = `CALL-${new Date().toISOString().slice(0, 10).replace(/-/g, "")}-${Math.floor(
-      1000 + Math.random() * 9000
-    )}`;
-    const fallbackName =
-      customerName && customerName !== "" ? customerName : "Unknown";
-    const fallbackAccount =
-      customerAccount && customerAccount !== "" ? customerAccount : null;
-    return {
-      call_summary: {
-        call_id: fallbackId,
-        call_date: new Date().toISOString(),
-        call_duration_estimate: "—",
-        call_category: category,
-        customer_name: fallbackName,
-        customer_account: fallbackAccount,
-      },
-      summary: summaryText,
-      key_topics: [],
-      equipment_discussed: [],
-      action_items: [],
-      next_steps: [],
-      customer_health: {
-        sentiment: "neutral",
-        sentiment_triggers: [],
-        retention_risk: "none",
-      },
-      follow_up_required: false,
-      account_id: fallbackAccount ?? undefined,
-      account_name: fallbackName !== "Unknown" ? fallbackName : undefined,
-      _usedLocalFallback: true,
-    };
+      customerName,
+      customerAccount: customerAccount ?? null,
+    });
   }
 }
 

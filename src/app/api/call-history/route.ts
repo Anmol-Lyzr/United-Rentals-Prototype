@@ -92,24 +92,36 @@ export async function POST(req: Request) {
       summary.account_id = customerAccount;
     }
 
+    const collection = await getCallHistoryCollection();
     const recordWithTranscript: CallRecord = {
       ...summary,
       stored_transcript: transcript,
     };
 
-    const collection = await getCallHistoryCollection();
+    // When MongoDB is unavailable (e.g. demo deployments without MONGODB_URI),
+    // treat storage as optional: return the record so the UI has a summary,
+    // but mark that it was not persisted.
     if (!collection) {
-      return NextResponse.json(
-        { error: "Call History storage is unavailable. Summary was generated but not saved." },
-        { status: 503 }
+      console.warn(
+        "[CallHistory] MongoDB not configured or unavailable. Returning summary without persistence."
       );
+      return NextResponse.json({
+        ...recordWithTranscript,
+        savedToHistory: false,
+        _storage: "unavailable",
+      });
     }
+
     await collection.insertOne({
       ...recordWithTranscript,
       createdAt: new Date().toISOString(),
     });
 
-    return NextResponse.json(recordWithTranscript);
+    return NextResponse.json({
+      ...recordWithTranscript,
+      savedToHistory: true,
+      _storage: "mongodb",
+    });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     return NextResponse.json({ error: message }, { status: 500 });

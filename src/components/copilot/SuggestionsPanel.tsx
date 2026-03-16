@@ -17,6 +17,8 @@ import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { cn } from "@/lib/utils";
 import type { ResolutionSuggestion } from "@/types/call-records";
+import type { FirstTimeCallerSuggestionState } from "@/mock/new-customer-scenario";
+import type { ProductOption } from "@/mock/product-catalog";
 
 interface SuggestionsPanelProps {
   suggestion: ResolutionSuggestion | null;
@@ -26,6 +28,10 @@ interface SuggestionsPanelProps {
   hasCustomerSpoken?: boolean;
   /** When user clicks "Say this" on the whisper/read-this-out line, send as agent response (audio + text) */
   onSayWhisper?: (text: string) => void;
+  /** Demo-only product cards to help selling for new customers. */
+  productRecommendations?: ProductOption[];
+  /** Scenario-specific guidance for the scripted first-time caller experience. */
+  firstTimeCustomerState?: FirstTimeCallerSuggestionState | null;
 }
 
 const SENTIMENT_CONFIG: Record<string, { color: string; bg: string }> = {
@@ -44,15 +50,19 @@ export function SuggestionsPanel({
   isActive,
   hasCustomerSpoken = false,
   onSayWhisper,
+  productRecommendations = [],
+  firstTimeCustomerState,
 }: SuggestionsPanelProps) {
   const s = suggestion;
   const sentimentCfg =
     SENTIMENT_CONFIG[s?.customer_sentiment || "neutral"] ||
     SENTIMENT_CONFIG.neutral;
+  const isNewCustomerGuidanceMode = !!firstTimeCustomerState;
 
   const showEmpty = !isActive && !s;
   const showWaitingForCustomer = isActive && !s && !hasCustomerSpoken;
   const showAnalyzing = isActive && !s && hasCustomerSpoken;
+  const hasProducts = Array.isArray(productRecommendations) && productRecommendations.length > 0;
 
   return (
     <div className="flex flex-col h-full overflow-hidden bg-white">
@@ -61,7 +71,7 @@ export function SuggestionsPanel({
         <div className="flex items-center gap-2">
           <Brain className="size-4 text-primary" />
           <h3 className="text-sm font-semibold text-gray-800">
-            AI Suggestions
+            AI Assistance
           </h3>
         </div>
         {isLoading && (
@@ -98,13 +108,218 @@ export function SuggestionsPanel({
       ) : (
         <ScrollArea className="flex-1 min-h-0">
           <div className="p-4 space-y-3">
-            {s?.off_topic && (
+            {/* Scenario-specific guidance for scripted first-time caller */}
+            {firstTimeCustomerState && (
+              <div className="space-y-3">
+                {/* SUGGESTION */}
+                <div className="rounded-xl bg-slate-50 border border-slate-200 p-3.5">
+                  <div className="flex items-center gap-1.5 mb-2">
+                    <MessageSquare className="size-4 text-primary shrink-0" />
+                    <span className="text-xs font-semibold text-primary uppercase tracking-wide">
+                      Suggestion
+                    </span>
+                  </div>
+                  <p className="text-[13px] leading-relaxed text-slate-800 break-words">
+                    {firstTimeCustomerState.intentSummary}
+                  </p>
+                </div>
+
+                {/* INSIGHTS */}
+                <div className="space-y-2">
+                  <div className="flex items-center gap-1.5">
+                    <Brain className="size-3.5 text-slate-500 shrink-0" />
+                    <span className="text-[11px] font-semibold text-slate-600 uppercase tracking-wide">
+                      Insights
+                    </span>
+                  </div>
+                  <div className="space-y-1.5">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Badge
+                        variant="outline"
+                        className="bg-[#eef2ff] text-[#4f46e5] border-[#e0e7ff] text-[11px]"
+                      >
+                        first-time caller
+                      </Badge>
+                    </div>
+                    {firstTimeCustomerState.recommendedBundle && (
+                      <p className="rounded-full bg-slate-50 border border-slate-200 px-3 py-1 text-[11px] text-slate-600 leading-snug break-words">
+                        {firstTimeCustomerState.recommendedBundle}
+                      </p>
+                    )}
+                  </div>
+                </div>
+
+                {/* Equipment */}
+                {firstTimeCustomerState.equipmentToOffer.length > 0 && (
+                  <div className="space-y-1.5">
+                    <div className="flex items-center gap-1.5">
+                      <Package className="size-3.5 text-slate-600 shrink-0" />
+                      <span className="text-[11px] font-semibold text-slate-700">
+                        Equipment to offer
+                      </span>
+                    </div>
+                    {firstTimeCustomerState.equipmentToOffer.map((item, idx) => (
+                      <div
+                        key={idx}
+                        className="rounded-lg bg-white border border-slate-200 p-2.5"
+                      >
+                        <div className="flex items-start gap-2">
+                          <span className="text-xs font-bold text-primary mt-0.5 shrink-0">
+                            {idx + 1}.
+                          </span>
+                          <div className="text-xs font-medium text-slate-800 break-words">
+                            {item}
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {/* Clarifying questions */}
+                {firstTimeCustomerState.clarifyingQuestions.length > 0 && (
+                  <div className="space-y-1.5">
+                    <div className="flex items-center gap-1.5">
+                      <CheckCircle className="size-3.5 text-emerald-600 shrink-0" />
+                      <span className="text-[11px] font-semibold text-slate-700">
+                        Clarifying questions
+                      </span>
+                    </div>
+                    {firstTimeCustomerState.clarifyingQuestions.map((q, idx) => (
+                      <div
+                        key={idx}
+                        className="rounded-lg bg-white border border-slate-200 p-2.5"
+                      >
+                        <div className="flex items-start gap-2">
+                          <span className="text-xs font-bold text-primary mt-0.5 shrink-0">
+                            {idx + 1}.
+                          </span>
+                          <div className="text-xs font-medium text-slate-800 break-words">
+                            {q}
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {/* Safety tip */}
+                {firstTimeCustomerState.safetyNotes.length > 0 && (
+                  <div className="rounded-xl bg-amber-50 border border-amber-200 p-3 flex gap-2">
+                    <ShieldAlert className="size-4 shrink-0 text-amber-600 mt-0.5" />
+                    <div className="min-w-0">
+                      <div className="text-[11px] font-semibold text-amber-800 mb-0.5">
+                        Safety & training notes
+                      </div>
+                      <ul className="list-disc pl-4 space-y-0.5 text-xs text-amber-700">
+                        {firstTimeCustomerState.safetyNotes.map((note, idx) => (
+                          <li key={idx} className="break-words">
+                            {note}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  </div>
+                )}
+
+                {/* Additional equipment */}
+                {firstTimeCustomerState.crossSell.length > 0 && (
+                  <div className="rounded-xl bg-emerald-50 border border-emerald-200 p-3 flex gap-2">
+                    <TrendingUp className="size-4 shrink-0 text-emerald-600 mt-0.5" />
+                    <div className="min-w-0">
+                      <div className="text-[11px] font-semibold text-emerald-800 mb-0.5">
+                        Additional equipment to mention
+                      </div>
+                      <ul className="list-disc pl-4 space-y-0.5 text-xs text-emerald-700">
+                        {firstTimeCustomerState.crossSell.map((item, idx) => (
+                          <li key={idx} className="break-words">
+                            {item}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Demo-only selling assistance: recommended products + prices */}
+            {hasProducts && (
+              <div className="rounded-xl bg-slate-50 border border-slate-200 p-3.5">
+                <div className="flex items-center justify-between gap-2 mb-2">
+                  <div className="flex items-center gap-1.5">
+                    <Package className="size-4 text-slate-700 shrink-0" />
+                    <span className="text-xs font-semibold text-slate-800 uppercase tracking-wide">
+                      Recommended products
+                    </span>
+                  </div>
+                  <Badge variant="outline" className="text-[10px] bg-white border-slate-200">
+                    New customer
+                  </Badge>
+                </div>
+                <div className="space-y-2">
+                  {productRecommendations.slice(0, 3).map((p) => (
+                    <div key={p.id} className="rounded-lg bg-white border border-slate-200 p-3">
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0">
+                          <div className="text-[13px] font-semibold text-slate-900 break-words">
+                            {p.name}
+                          </div>
+                          <div className="text-[11px] text-slate-500 mt-0.5">
+                            {p.category}
+                            {p.availabilityNote ? ` · ${p.availabilityNote}` : ""}
+                          </div>
+                        </div>
+                        <div className="shrink-0 text-right">
+                          <div className="text-[11px] text-slate-500">From</div>
+                          <div className="text-[13px] font-semibold text-slate-900 tabular-nums">
+                            ${p.dailyRateUsd}/day
+                          </div>
+                          <div className="text-[11px] text-slate-500 tabular-nums">
+                            ${p.weeklyRateUsd}/week
+                          </div>
+                        </div>
+                      </div>
+                      {Array.isArray(p.upsells) && p.upsells.length > 0 && (
+                        <div className="mt-2 flex flex-wrap gap-1.5">
+                          {p.upsells.slice(0, 3).map((u) => (
+                            <Badge
+                              key={u}
+                              variant="outline"
+                              className="text-[10px] bg-slate-50 border-slate-200 text-slate-600"
+                            >
+                              {u}
+                            </Badge>
+                          ))}
+                        </div>
+                      )}
+                      <div className="mt-2 flex flex-wrap gap-2">
+                        <button
+                          type="button"
+                          className="text-[11px] font-semibold px-2.5 py-1.5 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 transition-colors"
+                        >
+                          Add to quote (demo)
+                        </button>
+                        <button
+                          type="button"
+                          className="text-[11px] font-semibold px-2.5 py-1.5 rounded-lg bg-white border border-slate-200 text-slate-700 hover:bg-slate-50 transition-colors"
+                        >
+                          Ask job details
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {!isNewCustomerGuidanceMode && s?.off_topic && (
               <div className="rounded-xl bg-amber-50 border border-amber-200 p-3">
                 <p className="text-sm text-amber-800">{s.message}</p>
               </div>
             )}
 
-            {s && !s.off_topic && (
+            {!isNewCustomerGuidanceMode && s && !s.off_topic && (
               <>
                 {/* 1. Read this out — customer-facing line the agent says aloud; "Say this" sends as agent (audio + text) */}
                 {/* {s.suggested_response && (
@@ -137,14 +352,17 @@ export function SuggestionsPanel({
                 {s.whisper_response && (
                   <div className="rounded-xl bg-primary/5 border border-primary/20 p-3.5">
                     <div className="flex items-center gap-1.5 mb-2">
-                      <MessageSquare className="size-4 text-primary shrink-0" />
+                      <Brain className="size-4 text-primary shrink-0" />
                       <span className="text-xs font-semibold text-primary uppercase tracking-wide">
-                        Suggestion
+                        AI Suggestion
                       </span>
                     </div>
-                    <p className="text-[13px] leading-relaxed text-gray-800 break-words whitespace-pre-line">
-                      {s.whisper_response}
-                    </p>
+                    <div className="flex items-start gap-2">
+                      <MessageSquare className="size-3.5 text-slate-500 shrink-0 mt-0.5" />
+                      <p className="text-[13px] leading-relaxed text-slate-800 break-words whitespace-pre-line">
+                        {s.whisper_response}
+                      </p>
+                    </div>
                   </div>
                 )}
 

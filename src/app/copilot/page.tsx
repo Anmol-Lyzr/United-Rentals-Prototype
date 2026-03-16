@@ -9,6 +9,13 @@ import { TranscriptFeed } from "@/components/copilot/TranscriptFeed";
 import { SuggestionsPanel } from "@/components/copilot/SuggestionsPanel";
 import { CustomerInfoCard } from "@/components/copilot/CustomerInfoCard";
 import { CustomerAssistChat } from "@/components/copilot/CustomerAssistChat";
+import { recommendProductsFromTranscript } from "@/lib/product-recommendations";
+import {
+  buildFirstTimeCallerTranscript,
+  buildFirstTimeCallerSuggestionState,
+  NEW_CUSTOMER_NAME,
+  NEW_CUSTOMER_LOCATION,
+} from "@/mock/new-customer-scenario";
 import {
   sendTranscriptForResolution,
   generateCallSummary,
@@ -35,6 +42,8 @@ type AiCustomerInsights = {
 };
 
 const MAX_TURNS = 5;
+
+type CallMode = "standard" | "new_customer";
 
 /** Fallback when spoof agent fails to return a closing customer line */
 const FALLBACK_CUSTOMER_DECLINE = "No thank you.";
@@ -181,10 +190,17 @@ export default function CoPilotPage() {
   const [currentCustomerName, setCurrentCustomerName] = useState<string | undefined>(undefined);
   const [currentCustomerAccount, setCurrentCustomerAccount] = useState<string | undefined>(undefined);
   const [hasCustomerSpoken, setHasCustomerSpoken] = useState(false);
+  const [isTranscriptCollapsed, setIsTranscriptCollapsed] = useState(false);
   const [summaryError, setSummaryError] = useState<string | null>(null);
   const [summaryUsedFallback, setSummaryUsedFallback] = useState(false);
+  const [summaryStorageNote, setSummaryStorageNote] = useState<string | null>(
+    null
+  );
+  const [callMode, setCallMode] = useState<CallMode>("standard");
 
   const spoofLoopAbortedRef = useRef(false);
+  const scriptedPlaybackAbortRef = useRef(false);
+  const scriptedPlaybackRunIdRef = useRef(0);
   const sessionIdRef = useRef(sessionId);
   const spoofSessionIdRef = useRef("");
   const transcriptRef = useRef<TranscriptEntry[]>([]);
@@ -197,6 +213,12 @@ export default function CoPilotPage() {
   const intentCycleIndexRef = useRef<number>(-1);
 
   const agentSpeech = useAgentSpeechCapture();
+
+  const sleep = useCallback((ms: number) => {
+    return new Promise<void>((resolve) => {
+      window.setTimeout(resolve, ms);
+    });
+  }, []);
 
   useEffect(() => {
     sessionIdRef.current = sessionId;
@@ -233,19 +255,30 @@ export default function CoPilotPage() {
     return () => clearInterval(t);
   }, [callStatus]);
 
+  // Default to collapsed when a new call is coming in (ringing).
+  useEffect(() => {
+    if (callStatus === "ringing") {
+      setIsTranscriptCollapsed(true);
+    }
+  }, [callStatus]);
+
   const addToTranscript = useCallback(
     (entry: TranscriptEntry) => {
       transcriptRef.current = [...transcriptRef.current, entry];
       setTranscriptEntries([...transcriptRef.current]);
 
-      if (entry.speaker === "customer" && !isCustomerInfoAvailable) {
+      if (
+        entry.speaker === "customer" &&
+        !isCustomerInfoAvailable &&
+        callMode !== "new_customer"
+      ) {
         setIsCustomerInfoAvailable(true);
       }
       if (entry.speaker === "customer") {
         setHasCustomerSpoken(true);
       }
     },
-    [isCustomerInfoAvailable]
+    [isCustomerInfoAvailable, callMode]
   );
 
   const resolveCustomerFromPanel = useCallback(() => {
@@ -606,6 +639,20 @@ export default function CoPilotPage() {
           summary.call_summary.customer_account = customerAccount;
           summary.account_id = customerAccount;
         }
+        // Also persist the customer's location so the Google Maps link in
+        // Customer Info remains available even after the call is saved and
+        // reloaded from history.
+        if (spoofPersonaLabel) {
+          const personaProfile = getCustomerInfoForPersona(spoofPersonaLabel);
+          if (personaProfile?.location) {
+            if (!summary.call_summary.branch) {
+              summary.call_summary.branch = personaProfile.location;
+            }
+            if (!summary.job_site) {
+              summary.job_site = personaProfile.location;
+            }
+          }
+        }
         // #region agent log
         fetch("http://127.0.0.1:7594/ingest/a2672ed4-520f-49e8-9f0d-1425ca65bd21", {
           method: "POST",
@@ -645,11 +692,26 @@ export default function CoPilotPage() {
         });
         if (res.ok) {
           const record = await res.json();
+          const storageFlag: string | undefined = record?._storage;
+          const savedFlagFromApi: boolean | undefined = record?.savedToHistory;
+          const savedToHistory =
+            savedFlagFromApi !== undefined
+              ? !!savedFlagFromApi
+              : storageFlag === "mongodb";
+
           console.log("[CoPilot] saveCallAndGetSummary received record from API", {
             callId: record?.call_summary?.call_id,
             usedLocalFallback,
+            storageFlag,
+            savedToHistory,
           });
-          return { record: { ...record, _usedLocalFallback: summary._usedLocalFallback }, savedToHistory: true, usedLocalFallback };
+
+          const recordWithFallback = {
+            ...record,
+            _usedLocalFallback: summary._usedLocalFallback,
+          };
+
+          return { record: recordWithFallback, savedToHistory, usedLocalFallback };
         }
         const errBody = await res.text();
         console.error("[CoPilot] saveCallAndGetSummary API error", {
@@ -660,7 +722,11 @@ export default function CoPilotPage() {
       } catch (err) {
         console.error("[CoPilot] saveCallAndGetSummary failed", err);
         const usedLocalFallback = !!summary?._usedLocalFallback;
-        return { record: summary ?? null, savedToHistory: false, usedLocalFallback };
+        return {
+          record: summary ?? null,
+          savedToHistory: false,
+          usedLocalFallback,
+        };
       }
     },
     []
@@ -674,6 +740,7 @@ export default function CoPilotPage() {
       }
       setCallStatus("ended");
       setSummarySaved(false);
+      setSummaryStorageNote(null);
       const fullTranscript = transcript
         .map((e) => `${e.speaker}: ${e.text}`)
         .join("\n");
@@ -696,7 +763,9 @@ export default function CoPilotPage() {
       const savedName = callCustomerNameRef.current;
       const savedAccount = callCustomerAccountRef.current;
       const personaLabel =
-        SPOOF_PERSONAS.find((p) => p.value === selectedPersona)?.label;
+        selectedIntent === "account_setup" || callMode === "new_customer"
+          ? "New customer (construction project)"
+          : SPOOF_PERSONAS.find((p) => p.value === selectedPersona)?.label;
       setCurrentCustomerName(savedName);
       setCurrentCustomerAccount(savedAccount);
       setSummaryError(null);
@@ -732,17 +801,22 @@ export default function CoPilotPage() {
         if (savedToHistory) {
           setSummarySaved(true);
           setSummaryError(null);
+          setSummaryStorageNote(null);
         } else {
           setSummarySaved(false);
-          setSummaryError("Summary could not be saved to Call History.");
+          setSummaryError(null);
+          setSummaryStorageNote(
+            "Summary generated for this call (not stored in Call History in this environment)."
+          );
         }
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         console.error("Summary generation failed:", err);
         setSummaryError(msg || "Summary generation failed.");
+        setSummaryStorageNote(null);
       }
     },
-    [saveCallAndGetSummary, selectedPersona, selectedIntent]
+    [saveCallAndGetSummary, selectedPersona, selectedIntent, callMode]
   );
 
   const handleStartCall = useCallback(() => {
@@ -814,6 +888,9 @@ export default function CoPilotPage() {
 
   const handleEndCall = useCallback(() => {
     spoofLoopAbortedRef.current = true;
+    scriptedPlaybackAbortRef.current = true;
+    scriptedPlaybackRunIdRef.current += 1;
+    setIsSuggestionsLoading(false);
     cancelTTS();
     agentSpeech.cancelWaiting();
     // #region agent log
@@ -840,12 +917,15 @@ export default function CoPilotPage() {
         .map((e) => `${e.speaker}: ${e.text}`)
         .join("\n");
       const personaLabel =
-        SPOOF_PERSONAS.find((p) => p.value === selectedPersona)?.label;
+        selectedIntent === "account_setup" || callMode === "new_customer"
+          ? "New customer (construction project)"
+          : SPOOF_PERSONAS.find((p) => p.value === selectedPersona)?.label;
       // Use customer name and account saved from Customer Info when the call started
       const savedName = callCustomerNameRef.current;
       const savedAccount = callCustomerAccountRef.current;
       setCurrentCustomerName(savedName);
       setCurrentCustomerAccount(savedAccount);
+      setSummaryStorageNote(null);
       saveCallAndGetSummary(
         fullTranscript,
         sessionId,
@@ -878,36 +958,251 @@ export default function CoPilotPage() {
           if (savedToHistory) {
             setSummarySaved(true);
             setSummaryError(null);
+            setSummaryStorageNote(null);
           } else {
             setSummarySaved(false);
-            setSummaryError("Summary could not be saved to Call History.");
+            setSummaryError(null);
+            setSummaryStorageNote(
+              "Summary generated for this call (not stored in Call History in this environment)."
+            );
           }
         })
         .catch((err) => {
           console.error("Summary generation failed:", err);
           setSummaryError(err instanceof Error ? err.message : "Summary generation failed.");
+          setSummaryStorageNote(null);
         })
         .finally(() => setCallStatus("ended"));
     } else {
       setCallStatus("ended");
     }
-  }, [transcriptEntries, sessionId, agentSpeech, selectedPersona, saveCallAndGetSummary]);
+  }, [
+    transcriptEntries,
+    sessionId,
+    agentSpeech,
+    selectedPersona,
+    saveCallAndGetSummary,
+    selectedIntent,
+    callMode,
+  ]);
 
   const handleNewCall = useCallback(() => {
+    scriptedPlaybackAbortRef.current = true;
+    scriptedPlaybackRunIdRef.current += 1;
+    setIsSuggestionsLoading(false);
     setCallStatus("ringing");
     setTranscriptEntries([]);
     setSuggestion(null);
     setAiCustomerInsights(null);
     setCallDuration(0);
     setSummarySaved(false);
+    setSummaryError(null);
+    setSummaryUsedFallback(false);
+    setSummaryStorageNote(null);
     setSessionId(generateSessionId("copilot"));
     setIsCustomerInfoAvailable(false);
     setHasCustomerSpoken(false);
     setRightPanelTab("chat");
+    setCallMode("standard");
   }, []);
 
   const callStatusForControls =
     callStatus === "summarizing" ? "active" : callStatus;
+
+  const isNewCustomerUseCase =
+    selectedIntent === "account_setup" || callMode === "new_customer";
+  const productRecommendations =
+    callStatus === "active" && isNewCustomerUseCase
+      ? recommendProductsFromTranscript(transcriptEntries, {
+          maxProducts: 3,
+          lookbackCustomerTurns: 6,
+        })
+      : [];
+
+  const firstTimeCustomerState =
+    callMode === "new_customer"
+      ? buildFirstTimeCallerSuggestionState(transcriptEntries)
+      : null;
+
+  const handleStartNewCustomerCall = useCallback(() => {
+    // Abort any previous scripted playback run.
+    scriptedPlaybackAbortRef.current = true;
+    scriptedPlaybackRunIdRef.current += 1;
+    const runId = scriptedPlaybackRunIdRef.current;
+    scriptedPlaybackAbortRef.current = false;
+
+    const scriptedTranscript = buildFirstTimeCallerTranscript();
+    const personaLabel = "New customer (construction project)";
+    const intentValue = "account_setup";
+    const scriptedCustomerName = NEW_CUSTOMER_NAME;
+
+    // Reset state for scripted playback mode.
+    transcriptRef.current = [];
+    setTranscriptEntries([]);
+    setCallStatus("active");
+    setCallDuration(0);
+    setSuggestion(null);
+    setAiCustomerInsights(null);
+    setSummarySaved(false);
+    setSummaryError(null);
+    setSummaryUsedFallback(false);
+    setSummaryStorageNote(null);
+    setIsCustomerInfoAvailable(false);
+    setHasCustomerSpoken(false);
+    setRightPanelTab("info");
+    setCallMode("new_customer");
+    setSelectedIntent(intentValue);
+    setIsSuggestionsLoading(false);
+    callCustomerNameRef.current = scriptedCustomerName;
+    callCustomerAccountRef.current = undefined;
+    setCurrentCustomerName(scriptedCustomerName);
+    setCurrentCustomerAccount(undefined);
+
+    void (async () => {
+      // Initial pause after clicking “First time caller”
+      await sleep(2000);
+      if (scriptedPlaybackAbortRef.current || scriptedPlaybackRunIdRef.current !== runId) {
+        return;
+      }
+
+      for (let i = 0; i < scriptedTranscript.length; i++) {
+        const entry = scriptedTranscript[i];
+
+        if (i > 0) {
+          const prev = scriptedTranscript[i - 1];
+          const deltaMs = Math.max(
+            0,
+            entry.timestamp.getTime() - prev.timestamp.getTime()
+          );
+          if (deltaMs > 0) {
+            await sleep(deltaMs);
+          }
+          if (scriptedPlaybackAbortRef.current || scriptedPlaybackRunIdRef.current !== runId) {
+            return;
+          }
+        }
+
+        addToTranscript({
+          speaker: entry.speaker,
+          text: entry.text,
+          // use “now” so the UI clock feels live
+          timestamp: new Date(),
+        });
+
+        if (
+          entry.speaker === "customer" &&
+          entry.text.includes(NEW_CUSTOMER_LOCATION)
+        ) {
+          setIsCustomerInfoAvailable(true);
+        }
+
+        if (entry.speaker === "customer") {
+          const fullText = transcriptRef.current
+            .map((e) => `${e.speaker}: ${e.text}`)
+            .join("\n");
+
+          setIsSuggestionsLoading(true);
+          try {
+            const result = await sendTranscriptForResolution(
+              fullText,
+              sessionIdRef.current,
+              personaLabel,
+              intentValue
+            );
+            if (
+              !scriptedPlaybackAbortRef.current &&
+              scriptedPlaybackRunIdRef.current === runId &&
+              result
+            ) {
+              setSuggestion(result);
+              updateAiInsightsFromSuggestion(result);
+            }
+          } catch (err) {
+            console.error("Resolution agent error:", err);
+          } finally {
+            if (
+              !scriptedPlaybackAbortRef.current &&
+              scriptedPlaybackRunIdRef.current === runId
+            ) {
+              setIsSuggestionsLoading(false);
+            }
+          }
+        }
+      }
+
+      if (scriptedPlaybackAbortRef.current || scriptedPlaybackRunIdRef.current !== runId) {
+        return;
+      }
+
+      // Script ended: save summary + call history like normal calls.
+      const playbackEndedAt = Date.now();
+      setIsSuggestionsLoading(false);
+      setCallStatus("summarizing");
+      setSummarySaved(false);
+      setSummaryError(null);
+      setSummaryStorageNote(null);
+
+      const fullTranscript = transcriptRef.current
+        .map((e) => `${e.speaker}: ${e.text}`)
+        .join("\n");
+
+      const sid = sessionIdRef.current;
+      const customerName = callCustomerNameRef.current;
+      const customerAccount = callCustomerAccountRef.current;
+
+      try {
+        const { record, savedToHistory, usedLocalFallback } = await saveCallAndGetSummary(
+          fullTranscript,
+          sid,
+          customerName,
+          customerAccount,
+          personaLabel,
+          intentValue
+        );
+        if (scriptedPlaybackAbortRef.current || scriptedPlaybackRunIdRef.current !== runId) {
+          return;
+        }
+        if (!record) {
+          setSummaryError("Summary could not be generated.");
+          setCallStatus("ended");
+          return;
+        }
+
+        setCurrentCallRecord(record);
+        setSummaryUsedFallback(!!usedLocalFallback);
+
+        // End the call UI first (so the footer and link appear), then show “saved” after ~3s.
+        setCallStatus("ended");
+        const remainingMs = Math.max(0, 3000 - (Date.now() - playbackEndedAt));
+        if (remainingMs > 0) {
+          await sleep(remainingMs);
+        }
+        if (scriptedPlaybackAbortRef.current || scriptedPlaybackRunIdRef.current !== runId) {
+          return;
+        }
+
+        if (savedToHistory) {
+          setSummarySaved(true);
+          setSummaryError(null);
+          setSummaryStorageNote(null);
+        } else {
+          setSummarySaved(false);
+          setSummaryError(null);
+          setSummaryStorageNote(
+            "Summary generated for this call (not stored in Call History in this environment)."
+          );
+        }
+      } catch (err) {
+        if (scriptedPlaybackAbortRef.current || scriptedPlaybackRunIdRef.current !== runId) {
+          return;
+        }
+        const msg = err instanceof Error ? err.message : String(err);
+        setSummaryError(msg || "Summary generation failed.");
+        setSummaryStorageNote(null);
+        setCallStatus("ended");
+      }
+    })();
+  }, [addToTranscript, saveCallAndGetSummary, sleep, updateAiInsightsFromSuggestion]);
 
   return (
     <div
@@ -929,17 +1224,83 @@ export default function CoPilotPage() {
           onStartCall={handleStartCall}
           onEndCall={handleEndCall}
           onNewCall={handleNewCall}
+          onStartNewCustomerCall={handleStartNewCustomerCall}
         />
 
         <div className="flex-1 flex min-h-0 gap-4 overflow-hidden">
-            {/* Left panel: live transcript (fixed width, does not move with drawer) */}
-            <div className="w-[40%] shrink-0 min-w-0 border border-gray-200 rounded-2xl bg-white flex flex-col overflow-hidden">
-              <TranscriptFeed
-                entries={transcriptEntries}
-                isActive={callStatus === "active"}
-              />
+            {/* Left panel: live transcript with slide-out rail */}
+            <div className="shrink-0 h-full flex items-stretch">
+              {isTranscriptCollapsed ? (
+                <button
+                  type="button"
+                  onClick={() => setIsTranscriptCollapsed(false)}
+                  className="h-full w-8 flex items-center justify-center bg-indigo-600 text-white rounded-l-2xl shadow-lg hover:bg-indigo-700 hover:shadow-xl transition-all duration-200"
+                  aria-label="Expand transcript panel"
+                >
+                  <ChevronRight className="size-4" />
+                </button>
+              ) : (
+                <div className="relative w-[30vw] max-w-[420px] min-w-[260px] h-full">
+                  <div className="h-full w-full border border-gray-200 rounded-2xl bg-white flex flex-col overflow-hidden shadow-[0_18px_40px_rgba(148,163,184,0.35)]">
+                    <TranscriptFeed
+                      entries={transcriptEntries}
+                      isActive={callStatus === "active"}
+                    />
+                    {(callStatus === "summarizing" || callStatus === "ended") && (
+                      <div className="shrink-0 px-4 py-3 border-t border-gray-200 bg-slate-50 flex flex-wrap items-center gap-2">
+                        {callStatus === "summarizing" && (
+                          <div className="inline-flex items-center gap-2">
+                            <div className="size-4 border-2 border-primary/30 border-t-primary rounded-full animate-spin" />
+                            <span className="text-sm text-slate-700 font-medium">
+                              ⏳ Processing chat and creating summary...
+                            </span>
+                          </div>
+                        )}
+                        {callStatus === "ended" && (
+                          <>
+                            {summarySaved && (
+                              <span className="text-sm text-emerald-700 font-semibold">
+                                Call history saved.
+                              </span>
+                            )}
+                            {summaryError && (
+                              <span
+                                className="text-sm text-red-700 font-semibold"
+                                title={summaryError}
+                              >
+                                Summary failed: {summaryError}
+                              </span>
+                            )}
+                            {!summarySaved && !summaryError && summaryStorageNote && (
+                              <span className="text-sm text-slate-700 font-medium">
+                                {summaryStorageNote}
+                              </span>
+                            )}
+                            <button
+                              type="button"
+                              onClick={() => router.push("/call-history")}
+                              className="text-sm font-semibold text-primary hover:underline"
+                            >
+                              View chat history →
+                            </button>
+                          </>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setIsTranscriptCollapsed(true)}
+                    className="absolute inset-y-0 -right-3 my-auto size-7 rounded-full bg-indigo-600 text-white flex items-center justify-center shadow-md hover:bg-indigo-700 hover:shadow-lg transition-all duration-200"
+                    aria-label="Collapse transcript panel"
+                  >
+                    <ChevronLeft className="size-3.5" />
+                  </button>
+                </div>
+              )}
+            </div>
 
-              {/* {callStatus === "active" && (
+            {/* {callStatus === "active" && (
                 <div className="shrink-0 border-t border-gray-200 bg-slate-50 p-3">
                   {agentSpeech.isWaitingForAgent ? (
                     <div className="space-y-2">
@@ -1022,48 +1383,6 @@ export default function CoPilotPage() {
                 </div>
               )} */}
 
-              {(callStatus === "summarizing" || callStatus === "ended") && (
-                <div className="shrink-0 px-4 py-3 border-t border-gray-200 bg-slate-50 flex flex-wrap items-center gap-2">
-                  {callStatus === "summarizing" && (
-                    <>
-                      <div className="inline-flex items-center gap-2">
-                        <div className="size-4 border-2 border-primary/30 border-t-primary rounded-full animate-spin" />
-                        <span className="text-sm text-slate-700 font-medium">
-                          ⏳ Processing chat and creating summary...
-                        </span>
-                      </div>
-                    </>
-                  )}
-                  {callStatus === "ended" && (
-                    <>
-                      {summarySaved && !summaryUsedFallback && (
-                        <span className="text-sm text-emerald-700 font-semibold">
-                          Summary saved successfully.
-                        </span>
-                      )}
-                      {summarySaved && summaryUsedFallback && (
-                        <span className="text-sm text-amber-700 font-semibold" title="AI summary unavailable; backup summary was saved.">
-                          Summary saved (backup summary — AI unavailable).
-                        </span>
-                      )}
-                      {summaryError && (
-                        <span className="text-sm text-red-700 font-semibold" title={summaryError}>
-                          Summary failed: {summaryError}
-                        </span>
-                      )}
-                      <button
-                        type="button"
-                        onClick={() => router.push("/call-history")}
-                        className="text-sm font-semibold text-primary hover:underline"
-                      >
-                        View Call History →
-                      </button>
-                    </>
-                  )}
-                </div>
-              )}
-            </div>
-
             {/* Middle panel: AI suggestions (AI Assist box) */}
             <div className="flex-1 h-full overflow-hidden rounded-2xl border border-gray-200 bg-white">
               <SuggestionsPanel
@@ -1072,6 +1391,8 @@ export default function CoPilotPage() {
                 isActive={callStatus === "active"}
                 hasCustomerSpoken={hasCustomerSpoken}
                 onSayWhisper={callStatus === "active" ? handleSayWhisper : undefined}
+                productRecommendations={productRecommendations}
+                firstTimeCustomerState={firstTimeCustomerState}
               />
             </div>
 
@@ -1135,15 +1456,21 @@ export default function CoPilotPage() {
                         <CustomerInfoCard
                           record={currentCallRecord ?? undefined}
                           personaLabel={
-                            SPOOF_PERSONAS.find((p) => p.value === selectedPersona)
-                              ?.label
+                            callMode === "new_customer"
+                              ? "New customer (construction project)"
+                              : SPOOF_PERSONAS.find((p) => p.value === selectedPersona)
+                                  ?.label
                           }
-                          aiInsights={aiCustomerInsights}
                           isWaitingForCall={
                             callStatus === "idle" || callStatus === "ringing"
                           }
                           isLoading={
                             callStatus === "active" && !isCustomerInfoAvailable
+                          }
+                          mode={
+                            callMode === "new_customer"
+                              ? "minimalNewCustomer"
+                              : "default"
                           }
                         />
                       ) : (

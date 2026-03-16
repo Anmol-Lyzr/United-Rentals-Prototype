@@ -199,19 +199,20 @@ export default function AnalyticsPage() {
         otherCount,
       };
     });
-    const max = series.reduce((m, p) => (p.count > m ? p.count : m), 0);
+    const max = Math.max(
+      series.reduce((m, p) => (p.count > m ? p.count : m), 0),
+      1
+    );
 
     const voiceCalls = total;
-    const billingCalls = filtered.filter(
-      (r) =>
-        r.billing_details ||
-        r.call_summary?.call_category.toLowerCase().includes("billing")
-    ).length;
-    const troubleshootingCalls = filtered.filter(
-      (r) =>
-        r.equipment_issue ||
-        r.call_summary?.call_category.toLowerCase().includes("troubleshoot")
-    ).length;
+    const billingCalls = filtered.filter((r) => {
+      const category = r.call_summary?.call_category?.toLowerCase() ?? "";
+      return r.billing_details || category.includes("billing");
+    }).length;
+    const troubleshootingCalls = filtered.filter((r) => {
+      const category = r.call_summary?.call_category?.toLowerCase() ?? "";
+      return r.equipment_issue || category.includes("troubleshoot");
+    }).length;
 
     const perfScale = (value: number) =>
       total > 0 ? Math.min(98, 70 + Math.round((value / total) * 25)) : 80;
@@ -620,7 +621,7 @@ export default function AnalyticsPage() {
                           key={format(point.day, "EEE")}
                           className="flex-1 flex items-end justify-center"
                         >
-                          <div className="w-full max-w-[32px] rounded-t-xl overflow-hidden flex flex-col-reverse">
+                          <div className="w-full h-[110px] max-w-[32px] rounded-t-xl overflow-hidden flex flex-col-reverse">
                             {otherPortion > 0 && (
                               <div
                                 className="w-full bg-slate-300/80"

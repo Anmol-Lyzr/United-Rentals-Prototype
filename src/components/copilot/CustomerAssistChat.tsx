@@ -32,6 +32,7 @@ export function CustomerAssistChat({
   const [input, setInput] = useState("");
   const [nextId, setNextId] = useState(1);
   const chatEndRef = useRef<HTMLDivElement>(null);
+  const showQuickQuestions = messages.length === 0;
 
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -63,25 +64,6 @@ export function CustomerAssistChat({
 
   return (
     <section className="flex flex-col h-full min-h-0 bg-gradient-to-b from-slate-50/80 via-white to-white">
-      {/* Quick questions at top — capped height so chat area stays visible */}
-      <div className="shrink-0 px-4 pt-4 pb-3 border-b border-slate-200/60 max-h-[38%] min-h-0 flex flex-col">
-        <p className="text-[10px] uppercase tracking-wider text-slate-400 font-medium mb-2.5 shrink-0">
-          Quick questions
-        </p>
-        <div className="flex flex-wrap gap-2 overflow-y-auto min-h-0">
-          {CUSTOMER_ASSIST_QUICK_ACTIONS.map((label) => (
-            <button
-              key={label}
-              type="button"
-              onClick={() => quickAsk(label)}
-              className="rounded-full border border-slate-200 bg-white px-3.5 py-2 text-[11px] font-medium text-slate-600 shadow-sm hover:border-indigo-200 hover:bg-indigo-50/70 hover:text-indigo-800 active:scale-[0.98] transition-all duration-200"
-            >
-              {label}
-            </button>
-          ))}
-        </div>
-      </div>
-
       {/* Chat history — responses visible here, just above the chat box */}
       <div className="flex-1 min-h-[160px] px-4 py-3 overflow-y-auto space-y-2.5 text-xs">
         {messages.length === 0 && (
@@ -122,6 +104,27 @@ export function CustomerAssistChat({
         ))}
         <div ref={chatEndRef} />
       </div>
+
+      {/* Quick questions (hidden once chat is initiated) */}
+      {showQuickQuestions && (
+        <div className="shrink-0 px-4 pb-3">
+          <p className="text-[10px] uppercase tracking-wider text-slate-400 font-medium mb-2.5">
+            Quick questions
+          </p>
+          <div className="flex flex-wrap gap-2">
+            {CUSTOMER_ASSIST_QUICK_ACTIONS.map((label) => (
+              <button
+                key={label}
+                type="button"
+                onClick={() => quickAsk(label)}
+                className="rounded-full border border-slate-200 bg-white px-3.5 py-2 text-[11px] font-medium text-slate-600 shadow-sm hover:border-indigo-200 hover:bg-indigo-50/70 hover:text-indigo-800 active:scale-[0.98] transition-all duration-200"
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Chat box — answer appears just above this */}
       <form
