@@ -355,7 +355,16 @@ function CallRow({ record }: { record: CallRecord }) {
           {record.job_site && (
             <section className="rounded-lg border border-slate-200 bg-slate-50/50 p-3">
               <h3 className="text-xs font-semibold text-slate-600 mb-1">Job site</h3>
-              <p className="text-sm text-slate-800">{record.job_site}</p>
+              <a
+                href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(
+                  record.job_site
+                )}`}
+                target="_blank"
+                rel="noreferrer"
+                className="text-sm text-slate-800 underline decoration-slate-300 underline-offset-2 hover:decoration-slate-500 hover:text-slate-900"
+              >
+                {record.job_site}
+              </a>
             </section>
           )}
 

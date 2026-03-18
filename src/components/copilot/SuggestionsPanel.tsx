@@ -66,12 +66,31 @@ export function SuggestionsPanel({
       ? suggestionList[suggestionList.length - 1]
       : null;
   const isNewCustomerGuidanceMode = !!firstTimeCustomerState;
+  // In "first time caller" scripted mode, the resolution agent can sometimes emit
+  // identical suggestion text across consecutive turns. Keep the append-only
+  // history behavior, but hide exact duplicates so the user always sees variety.
+  const displaySuggestionList = (() => {
+    if (!isNewCustomerGuidanceMode) return suggestionList;
+    const seen = new Set<string>();
+    const unique: ResolutionSuggestion[] = [];
+    for (const item of suggestionList) {
+      const rawText = item.off_topic
+        ? (item.message || "").trim()
+        : (item.whisper_response || "").trim();
+      const key = rawText.replace(/\s+/g, " ").trim().toLowerCase();
+      if (!key) continue;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      unique.push(item);
+    }
+    return unique;
+  })();
 
-  const showEmpty = !isActive && suggestionList.length === 0;
+  const showEmpty = !isActive && displaySuggestionList.length === 0;
   const showWaitingForCustomer =
-    isActive && suggestionList.length === 0 && !hasCustomerSpoken;
+    isActive && displaySuggestionList.length === 0 && !hasCustomerSpoken;
   const showAnalyzing =
-    isActive && suggestionList.length === 0 && hasCustomerSpoken;
+    isActive && displaySuggestionList.length === 0 && hasCustomerSpoken;
   const hasProducts = Array.isArray(productRecommendations) && productRecommendations.length > 0;
 
   return (
@@ -130,9 +149,9 @@ export function SuggestionsPanel({
                     </span>
                   </div>
                   {/* Append-only suggestion history (do not replace older items). */}
-                  {suggestionList.length > 0 ? (
+                  {displaySuggestionList.length > 0 ? (
                     <ol className="list-decimal pl-4 space-y-1 text-[13px] leading-relaxed text-slate-800 break-words">
-                      {suggestionList.map((item, idx) => {
+                      {displaySuggestionList.map((item, idx) => {
                         const text = item.off_topic
                           ? (item.message || "").trim()
                           : (item.whisper_response || "").trim();

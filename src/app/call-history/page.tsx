@@ -3,21 +3,18 @@
 import { useEffect, useState } from "react";
 import { AppSidebar } from "@/components/AppSidebar";
 import { CallHistoryList } from "@/components/call-history/CallHistoryList";
-import { History, Loader2, Database, HardDrive } from "lucide-react";
+import { History, Loader2 } from "lucide-react";
 import type { CallRecord } from "@/types/call-records";
-import { cn } from "@/lib/utils";
 
 export default function CallHistoryPage() {
   const [records, setRecords] = useState<CallRecord[]>([]);
   const [loading, setLoading] = useState(true);
-  const [source, setSource] = useState<"mongodb" | null>(null);
 
   useEffect(() => {
     let cancelled = false;
 
     async function load() {
       setLoading(true);
-      setSource(null);
 
       try {
         const res = await fetch("/api/call-history");
@@ -27,7 +24,6 @@ export default function CallHistoryPage() {
           const data = await res.json();
           if (Array.isArray(data)) {
             setRecords(data);
-            setSource("mongodb");
             setLoading(false);
             return;
           }
@@ -69,28 +65,6 @@ export default function CallHistoryPage() {
                   <>
                     {records.length} call{records.length !== 1 ? "s" : ""} — click
                     a card to expand
-                    {source && (
-                      <span
-                        className={cn(
-                          "ml-2 inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium",
-                          source === "mongodb"
-                            ? "bg-emerald-100 text-emerald-800"
-                            : "bg-amber-100 text-amber-800"
-                        )}
-                      >
-                        {source === "mongodb" ? (
-                          <>
-                            <Database className="size-3" />
-                            MongoDB
-                          </>
-                        ) : (
-                          <>
-                            <HardDrive className="size-3" />
-                            Local
-                          </>
-                        )}
-                      </span>
-                    )}
                   </>
                 )}
               </p>
