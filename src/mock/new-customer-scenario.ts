@@ -5,10 +5,46 @@ export const NEW_CUSTOMER_LOCATION =
   "2450 Oak Ridge Drive, Austin, TX 78758";
 
 export const NEW_CUSTOMER_EQUIPMENT: string[] = [
-  "3.5-ton mini excavator",
-  "small skid steer",
-  "standard bucket attachment",
+  "3.5-Ton Mini Excavator",
+  "Small Skid Steer",
+  "Standard Bucket Attachment",
 ];
+
+export const EQUIPMENT_DETAILS: Record<
+  string,
+  { name: string; description: string }
+> = {
+  "High-level overview: earthmoving, aerial, and material handling fleet": {
+    name: "High-level overview: earthmoving, aerial, and material handling fleet",
+    description:
+      "Examples: Mini Excavators, Skid Steers, Boom Lifts, Scissor Lifts, Telehandlers, and Forklifts commonly rented from United Rentals.",
+  },
+  "3.5-Ton or similar mini excavator for footings and trenching.": {
+    name: "3.5-Ton or similar mini excavator for footings and trenching.",
+    description:
+      "Examples: Mini Excavators such as 3.5‑Ton or 4‑Ton models commonly rented for trenching and footing work.",
+  },
+  "Compact skid steer or track loader for moving spoil and materials.": {
+    name: "Compact skid steer or track loader for moving spoil and materials.",
+    description:
+      "Examples: Small Skid Steers and Compact Track Loaders used for moving soil, gravel, and palletized materials.",
+  },
+  "3.5-Ton Mini Excavator": {
+    name: "3.5-Ton Mini Excavator",
+    description:
+      "Compact excavator for precise digging in tight spaces; ideal for trenching and light utility work.",
+  },
+  "Small Skid Steer": {
+    name: "Small Skid Steer",
+    description:
+      "Small, maneuverable loader for grading, moving material, and cleanup on tight jobsites.",
+  },
+  "Standard Bucket Attachment": {
+    name: "Standard Bucket Attachment",
+    description:
+      "General-purpose bucket for scooping, lifting, and moving loose materials like soil or gravel.",
+  },
+};
 
 export type FirstTimeCallerSuggestionStage =
   | "initial"
@@ -79,7 +115,8 @@ export function buildFirstTimeCallerTranscript(
     },
     {
       speaker: "agent",
-      text: "Perfect, thanks. Based on that site, I’d suggest a 3.5-ton mini excavator for the footings and a small skid steer for moving material around the pad. Does that match what you’re looking for?",
+      text:
+        "Perfect, thanks. Based on that site, I’d suggest a 3.5-Ton Mini Excavator for the footings and a Small Skid Steer for moving material around the pad. Does that match what you’re looking for?",
       timestamp: later(22),
     },
     {
@@ -89,7 +126,7 @@ export function buildFirstTimeCallerTranscript(
     },
     {
       speaker: "agent",
-      text: `Great, I’ll set up a reservation for a 3.5-ton mini excavator and a small skid steer delivering to ${NEW_CUSTOMER_LOCATION} next week. Do you need any other equipments we provide scissor lifts too?`,
+      text: `Great, I’ll set up a reservation for a 3.5-Ton Mini Excavator and a Small Skid Steer delivering to ${NEW_CUSTOMER_LOCATION} next week. Do you need any other equipments we provide scissor lifts too?`,
       timestamp: later(30),
     },
     {
@@ -141,7 +178,7 @@ export function buildFirstTimeCallerSuggestionState(
       intentSummary:
         "Customer needs to clear a lot and dig footings in a tight space.",
       equipmentToOffer: [
-        "3.5-ton or similar mini excavator for footings and trenching.",
+        "3.5-Ton or similar mini excavator for footings and trenching.",
         "Compact skid steer or track loader for moving spoil and materials.",
       ],
       clarifyingQuestions: [

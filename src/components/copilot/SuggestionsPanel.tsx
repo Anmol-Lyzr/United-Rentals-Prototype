@@ -19,6 +19,8 @@ import { cn } from "@/lib/utils";
 import type { ResolutionSuggestion } from "@/types/call-records";
 import type { FirstTimeCallerSuggestionState } from "@/mock/new-customer-scenario";
 import type { ProductOption } from "@/mock/product-catalog";
+import { Tooltip } from "@/components/ui/tooltip";
+import { EQUIPMENT_DETAILS } from "@/mock/new-customer-scenario";
 
 interface SuggestionsPanelProps {
   /** New (preferred): append-only history of suggestions. */
@@ -165,15 +167,28 @@ export function SuggestionsPanel({
                       </span>
                     </div>
                     <div className="rounded-xl bg-white border border-slate-200 p-3">
-                      <ol className="list-decimal pl-4 space-y-1.5">
-                        {firstTimeCustomerState.equipmentToOffer.map((item, idx) => (
-                          <li
-                            key={idx}
-                            className="text-xs font-medium text-slate-800 break-words"
-                          >
-                            {item}
-                          </li>
-                        ))}
+                      <ol className="list-decimal pl-4 space-y-2">
+                        {firstTimeCustomerState.equipmentToOffer.map(
+                          (item, idx) => {
+                            const details = EQUIPMENT_DETAILS[item];
+                            const label = details?.name ?? item;
+                            const description = details?.description;
+                            const tooltipText = description || item;
+
+                            return (
+                              <li
+                                key={idx}
+                                className="text-xs text-slate-800 break-words"
+                              >
+                                <div className="font-medium">
+                                  <Tooltip content={tooltipText}>
+                                    <span>{label}</span>
+                                  </Tooltip>
+                                </div>
+                              </li>
+                            );
+                          }
+                        )}
                       </ol>
                     </div>
                   </div>

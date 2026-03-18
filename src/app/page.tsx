@@ -194,25 +194,6 @@ export default function DashboardPage() {
                   </p>
                 </div>
               </div>
-              <div className="mt-2 flex flex-wrap items-center gap-3">
-                <Button
-                  size="sm"
-                  onClick={() => router.push("/copilot")}
-                  className="gap-2 rounded-full bg-[#6366f1] hover:bg-[#4f46e5] text-xs font-semibold"
-                >
-                  <Phone className="size-4" />
-                  Call
-                </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => router.push("/call-history")}
-                  className="gap-2 rounded-full border-indigo-100 bg-white/60 text-xs text-slate-700 hover:bg-white"
-                >
-                  <History className="size-4" />
-                  View History
-                </Button>
-              </div>
             </div>
 
             <div className="grid grid-cols-2 gap-3 text-xs min-w-[220px] max-w-sm">
@@ -233,7 +214,7 @@ export default function DashboardPage() {
                   AI resolution
                 </p>
                 <p className="text-xl font-semibold text-slate-900">
-                  {hasData ? `${aiResolutionRate}%` : "92%"}
+                  85%
                 </p>
                 <p className="text-[11px] text-slate-500">
                   {hasData
@@ -351,18 +332,13 @@ export default function DashboardPage() {
                     1
                   );
                   const chartHeight = 140;
-                  const points = series
-                    .map((p, i) => {
-                      const x = (i / (series.length - 1 || 1)) * 100;
-                      const y =
-                        chartHeight -
-                        (p.count / maxCount) * (chartHeight - 12);
-                      return `${x},${y}`;
-                    })
-                    .join(" ");
-                  const areaPoints = `0,${chartHeight} ${points} 100,${chartHeight}`;
+                  const barGap = 4;
+                  const barWidth =
+                    series.length > 0
+                      ? (100 - barGap * (series.length + 1)) / series.length
+                      : 0;
                   return (
-                    <div className="h-44 rounded-2xl bg-gradient-to-b from-slate-50 to-white border border-slate-100 relative overflow-hidden px-4 py-3">
+                    <div className="h-48 rounded-2xl bg-gradient-to-b from-slate-50 to-white border border-slate-100 relative overflow-hidden px-4 pt-3 pb-5">
                       <div className="absolute right-3 top-3 text-[10px] font-medium text-slate-400 uppercase tracking-wider">
                         Calls
                       </div>
@@ -381,47 +357,60 @@ export default function DashboardPage() {
                           >
                             <stop
                               offset="0%"
+                              stopColor="#4f46e5"
+                              stopOpacity="0.3"
+                            />
+                            <stop
+                              offset="50%"
                               stopColor="#6366f1"
-                              stopOpacity="0.25"
+                              stopOpacity="0.9"
                             />
                             <stop
                               offset="100%"
-                              stopColor="#6366f1"
-                              stopOpacity="0.02"
+                              stopColor="#22d3ee"
+                              stopOpacity="1"
                             />
                           </linearGradient>
                         </defs>
-                        <polygon
-                          fill="url(#volumeGradient)"
-                          points={areaPoints}
-                        />
-                        <polyline
-                          fill="none"
-                          stroke="#6366f1"
-                          strokeWidth="2"
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          points={points}
-                        />
-                        {series.map((p, i) => {
-                          const x = (i / (series.length - 1 || 1)) * 100;
+                        {/* subtle horizontal grid lines */}
+                        {[0.25, 0.5, 0.75].map((ratio) => {
                           const y =
                             chartHeight -
-                            (p.count / maxCount) * (chartHeight - 12);
+                            ratio * (chartHeight - 16);
                           return (
-                            <circle
+                            <line
+                              // eslint-disable-next-line react/no-array-index-key
+                              key={ratio}
+                              x1="0"
+                              x2="100"
+                              y1={y}
+                              y2={y}
+                              stroke="#e5e7eb"
+                              strokeWidth="0.6"
+                              strokeDasharray="2 3"
+                            />
+                          );
+                        })}
+                        {series.map((p, i) => {
+                          const x =
+                            barGap + i * (barWidth + barGap);
+                          const barHeight =
+                            (p.count / maxCount) * (chartHeight - 16);
+                          const y = chartHeight - barHeight;
+                          return (
+                            <rect
                               key={format(p.day, "EEE")}
-                              cx={x}
-                              cy={y}
-                              r="2.5"
-                              fill="#6366f1"
-                              stroke="white"
-                              strokeWidth="1.5"
+                              x={x}
+                              y={y}
+                              width={barWidth}
+                              height={barHeight}
+                              rx={2.5}
+                              fill="url(#volumeGradient)"
                             />
                           );
                         })}
                       </svg>
-                      <div className="flex justify-between mt-1 text-[10px] text-slate-500">
+                      <div className="flex justify-between mt-3 text-[10px] text-slate-500 px-1">
                         {series.map((point) => (
                           <span key={format(point.day, "EEE")}>
                             {format(point.day, "EEE")}
