@@ -1,351 +1,284 @@
-## United Rentals AI Co‑Pilot Prototype
+# United Rentals AI Co‑Pilot Prototype
 
-This repository contains a Next.js prototype for an **AI‑augmented United Rentals contact center experience**. It is designed as a polished demo you can walk through live with sales, customers, or internal stakeholders.
+A Next.js prototype for an **AI‑augmented United Rentals contact center experience**. It’s designed as a **sales-ready demo** you can walk through live with customers or internal stakeholders.
 
 The prototype focuses on two core journeys:
 
-- **Start Co‑Pilot** – a live, AI‑driven call simulation.
-- **Call History & Analytics** – a rich view of previous calls and demo analytics.
+- **Start Co‑Pilot**: a live, AI‑driven call simulation (with a spoofed customer).
+- **Call History & Analytics**: a rich review of previous calls plus demo analytics.
 
-The overall UI theme is **clean, modern, and sales‑ready**: light gradients, soft shadows, pill buttons, and carefully balanced spacing so it feels like a premium product, not a rough demo.
+## Why this exists
 
----
+This repo is intentionally demo-first:
 
-### Key Experiences
+- **Production‑grade UX feel** even when services are mocked (no empty dashboards).
+- **Storytelling-optimized** call flow (persona + intent cycling so each run looks different).
+- **Not production**: auth, data privacy, key management, and governance are not production-hardened.
 
-- **Start Co‑Pilot**
-  - Automatically selects a **customer persona** (e.g. happy, angry, confused, neutral) and an **intent** (billing inquiry, contract inquiry, equipment troubleshooting, etc.) when you start a call.
-  - Uses a **spoof agent** to simulate the customer side of the conversation, so you can run realistic calls without a live caller.
-  - The **AI Suggestions panel** continuously analyzes the transcript and surfaces:
-    - Next best action.
-    - Customer sentiment.
-    - Cross‑sell opportunities.
-  - A **Customer Assist chat** gives the agent quick questions and knowledge snippets to use during the call.
-  - The **Customer Info** tab shows persona‑driven customer details (account, rentals, tickets, past calls) with a smooth loading flow:
-    - Before the call is answered: “Customer details will appear here once the call is answered.”
-    - Right after the call starts, before we have enough context: “Fetching customer details…”
-    - After the customer has spoken: full, rich customer profile.
+## Routes (screens) and what they do
 
-- **Call Summary & History**
-  - When a call ends, the full transcript is sent to a **Summary Agent**.
-  - The system always produces a structured **CallRecord**:
-    - If the remote summary service succeeds, we use its rich structured output.
-    - If it fails or returns an error‑like reply, we generate a **local summary** from the transcript without ever saying it is a “fallback”.
-  - Call History cards show:
-    - Customer name and account that match the persona used in Co‑Pilot.
-    - Call summary and category (billing, troubleshooting, extension, etc.).
-    - Stored transcript for deeper review.
+Navigation is defined in `src/components/AppSidebar.tsx`.
 
-All persona and intent information is wired end‑to‑end so what you see in **Start Co‑Pilot** matches what you see later in **Call History**.
+| Route | What it shows | Key file(s) |
+|---|---|---|
+| `/` | Dashboard KPIs and demo metrics | `src/app/page.tsx`, `src/mock/app-demo-data.ts` |
+| `/copilot` | Live call simulation: transcript + suggestions + customer info + chat assist | `src/app/copilot/page.tsx`, `src/lib/ur-agents.ts`, `src/components/copilot/*` |
+| `/call-history` | Saved call records (summary + transcript) | `src/app/call-history/page.tsx`, `src/components/call-history/*`, `src/app/api/call-history/route.ts` |
+| `/analytics` | Analytics derived from call history (with demo fallback) | `src/app/analytics/page.tsx`, `src/mock/app-demo-data.ts` |
+| `/reports` | Demo report generation and “recent reports” | `src/app/reports/page.tsx`, `src/mock/reports.ts` |
+| `/integrations` | Demo integrations catalog | `src/app/integrations/page.tsx`, `src/mock/integrations.ts` |
 
----
+## Key journeys (how to use the prototype)
 
-### Tech Stack
+### Dashboard / Analytics
 
-- **Framework**: Next.js (App Router) with React.
-- **Styling**: Tailwind CSS + shadcn/ui, with a custom theme for:
-  - Soft gradients and subtle borders.
-  - Rounded cards and pill buttons.
-  - Consistent typography across Dashboard, Analytics, Reports, Integrations, and Co‑Pilot.
-- **State & Data Flow**:
-  - React hooks (`useState`, `useEffect`, `useRef`, `useCallback`) for UI state.
-  - Session‑scoped indices to **cycle personas and intents** between calls.
-  - A unified mock data module (`src/mock/app-demo-data.ts`) powering Dashboard, Analytics, Reports, and Integrations so the app always “feels alive”.
-- **Backend & Storage**:
-  - Next.js API route at `/api/call-history` for saving and reading call records.
-  - MongoDB integration via `src/lib/mongodb.ts` (optional; if unavailable, the UI still demos correctly using in‑memory data).
-- **AI Integrations** (via `src/lib/ur-agents.ts`):
-  - Spoof Agent – simulates the customer.
-  - Resolution Agent – generates real‑time suggestions from the transcript.
-  - Summary Agent – builds structured call summaries post‑call, with a robust local fallback.
+- Browse metrics and charts (seeded demo data) so the app always “feels alive”.
+- Demo data is centralized in `src/mock/app-demo-data.ts`.
 
----
+### Start Co‑Pilot (live call simulation)
 
-### Running the Prototype
+The Co‑Pilot page is `src/app/copilot/page.tsx`. It presents:
 
-1. **Install dependencies**
+- **Live Transcript** (left): built turn-by-turn during the demo call.
+- **AI Suggestions** (middle): Resolution agent output (next best action, sentiment, steps, etc.).
+- **Right drawer**: **Chat Assist** and **Customer Info** tabs.
 
-```bash
-npm install
-```
+How a standard demo call runs:
 
-2. **Set environment variables**
+1. Click **Start Call**.
+2. The app cycles to the next **persona + intent** (stored in `sessionStorage` so it continues across navigation).
+3. The ISR greeting is generated (agent-driven) and added to the transcript.
+4. The **spoof customer agent** responds and the transcript grows.
+5. After each customer turn, the transcript-so-far is sent to the **AI suggestion agent** and the suggestion list updates.
+6. The ISR response is generated (agent-driven) using the customer’s latest message.
+7. After the call ends, the transcript is summarized into a structured record and saved to Call History.
 
-Copy `.env.example` to `.env` and fill in any required keys (API key for the Lyzr agents, MongoDB URI if you want persistence, etc.).
+There is also a scripted **“first time caller”** mode that plays a predefined transcript while still requesting suggestions each customer turn (see `CallMode` in `src/app/copilot/page.tsx`).
 
-3. **Start the dev server**
+### End call → summary → Call History
 
-```bash
-npm run dev
-```
+When a call ends:
 
-Then open `http://localhost:3000` in your browser.
+- The transcript is summarized into a `CallRecord`.
+- The UI posts it to `POST /api/call-history`.
+- Open `/call-history` to view the newly saved record, including the stored transcript.
 
----
+Storage is optional: if MongoDB isn’t configured/available, the API still returns the record but marks that it was not persisted.
 
-### Demo Flow (Suggested for Sales / Stakeholders)
+## Agents in this prototype (requested breakdown)
 
-1. **Dashboard / Analytics**
-   - Show live‑looking metrics, channels, and SLA breakdowns powered by unified demo data (no empty or zero cards).
-2. **Start Co‑Pilot**
-   - Start a call, watch persona + intent auto‑select.
-   - Show the Live Transcript, AI Suggestions, and Customer Info flows.
-   - Highlight the “Processing chat and creating summary…” state, followed by “Summary saved to Call History.”
-3. **Call History**
-   - Open the newly saved call.
-   - Point out that **customer name, account, and intent** match exactly what was used in Co‑Pilot.
-   - Review the summary and stored transcript.
+All agent integrations are wrapped in `src/lib/ur-agents.ts` and orchestrated by `src/app/copilot/page.tsx`.
 
-The goal of this prototype is to feel **production‑grade** in UX and data, even though it is running on demo services and seeded data. It is tuned for storytelling and vision demos more than raw feature breadth.
+### Summary agent (post‑call)
 
-# Banking Charge Dispute Application
+**Purpose**: convert a completed transcript into a structured `CallRecord` for Call History and analytics.
 
-A production-quality prototype web application for a banking credit/debit card dispute system. This app demonstrates an enterprise-ready conversational interface for handling charge disputes through an intelligent banking assistant.
+- **Function**: `generateCallSummary(fullTranscript, sessionId, customerName?, customerAccount?)` (`src/lib/ur-agents.ts`)
+- **Invoked from**: `saveCallAndGetSummary(...)` in `src/app/copilot/page.tsx`
+- **Input**: transcript as a single string (`speaker: text` lines)
+- **Output**: `CallRecord` (`src/types/call-records.ts`)
+- **Resilience**:
+  - Retries up to 4 times.
+  - Detects “error-like” LLM responses.
+  - Falls back to a local heuristic summary via `buildLocalFallbackCallRecord(...)` without surfacing “fallback” language in the UI.
 
-## Features
+### Spoof customer agent
 
-### Chat Assistant
-- **WhatsApp-style Chat Interface**: Clean, modern chat UI with message bubbles
-- **Single Agent Architecture**: Frontend communicates only with the Dispute Orchestrator Agent
-- **Real-time Messaging**: Send and receive messages through the agent API
-- **Quick Actions**: Pre-defined actions for common tasks (view transactions, dispute charges)
-- **Resolution Cards**: Visual status cards for fraud detection and dispute resolution
+**Purpose**: simulate the customer side of a call for a realistic demo without a live caller.
 
-### Mail Assistant
-- **Email Templates**: Pre-built templates for common banking requests
-- **Gmail Integration**: Send emails directly through Gmail compose
-- **Sample Conversations**: Example email threads with bank responses
+- **Function**: `getSpoofAgentReply(message, sessionId)` (`src/lib/ur-agents.ts`)
+- **Driven by**: `runCallLoop(...)` in `src/app/copilot/page.tsx`
+- **Persona + intent**:
+  - Deterministic cycling across calls (persona + intent indices are stored in `sessionStorage`).
+  - Intent-specific customer opening guidance is built by `getIntentOpeningInstruction(intentValue)`.
+- **Call end marker**:
+  - Spoof replies may include `[CALL_END]`; the UI strips it and transitions into closing.
 
-### Phone Assistant
-- **Voice-powered AI**: Real-time voice conversation with the banking assistant
-- **WebSocket Streaming**: High-quality bidirectional audio via Lyzr Voice API
-- **Live Transcription**: Real-time transcript of voice conversations
-- **Barge-in Support**: Interrupt the agent while it's speaking
-- **Browser Fallback**: Automatic fallback to browser speech APIs if WebSocket unavailable
+### Live transcript (feature)
 
-### Other Features
-- **Observability Dashboard**: Analytics and monitoring view for demo purposes
-- **Disputes Dashboard**: Overview of dispute cases and statuses
-- **Liquid Glass UI**: Modern, premium glass-morphism design
-- **Responsive Design**: Mobile-first, works on all screen sizes
+**What it is**: a UI-managed transcript of the demo call, built from:
 
-## Tech Stack
+- “agent/ISR” lines (agent-driven phrases and replies)
+- “customer” lines (spoof customer agent or scripted playback)
 
-- **Next.js 15.5.7** (App Router)
-- **React 19.1.0**
-- **TypeScript 5**
-- **Tailwind CSS v4**
-- **shadcn/ui** (New York style)
-- **Radix UI** primitives
-- **Lucide React** icons
-- **next-themes** (theme switching)
-- **Recharts** (charts for observability)
-- **date-fns** (date formatting)
+Where it lives:
 
-## Getting Started
+- **Source of truth**: `transcriptRef.current` + `transcriptEntries` in `src/app/copilot/page.tsx`
+- **Rendered by**: `src/components/copilot/TranscriptFeed.tsx`
+
+What gets persisted:
+
+- The API saves a transcript string as `stored_transcript` on the saved `CallRecord` (details below).
+
+### AI suggestion agent (Resolution agent)
+
+**Purpose**: produce real-time “whisper” guidance and structured suggestions from the transcript-so-far.
+
+- **Function**: `sendTranscriptForResolution(transcript, sessionId, personaLabel?, intentValue?)` (`src/lib/ur-agents.ts`)
+- **When called**: after each customer turn (standard + scripted modes)
+- **Output**: normalized `ResolutionSuggestion` (`src/types/call-records.ts`)
+  - Common fields: `suggested_response`, `whisper_response`, `resolution_steps`, `knowledge_references`, `escalation`, `next_best_action`, `cross_sell_opportunity`, `customer_sentiment`
+- **Rendered by**: `src/components/copilot/SuggestionsPanel.tsx`
+
+### Chat Assist agent (in-call Q&A)
+
+The right-panel “Chat Assist” uses an agent-backed API route that requests strict JSON.
+
+- **UI**: `src/components/copilot/CustomerAssistChat.tsx`
+- **API**: `POST /api/chat-assist` (`src/app/api/chat-assist/route.ts`)
+- **Response contract**: `{ structured, raw }`
+  - `structured` attempts to normalize keys: **Summary**, **Key points**, **Action steps (system)**, **Caveats / policy notes**
+  - The UI currently renders only **Summary** + **Key points**
+
+## How we store call summaries in MongoDB
+
+MongoDB storage is optional (the demo still works without it).
+
+### Configuration
+
+See `.env.example`. To enable persistence:
+
+- `MONGODB_URI`
+- `MONGODB_DB_NAME` (optional; defaults to `ur_copilot`)
+
+### DB/collection
+
+Defined in `src/lib/mongodb.ts`:
+
+- **Database**: `process.env.MONGODB_DB_NAME ?? "ur_copilot"`
+- **Collection**: `call_summaries`
+
+### Write path (insert)
+
+`POST /api/call-history` (`src/app/api/call-history/route.ts`) inserts:
+
+- All `CallRecord` fields
+- `stored_transcript: transcript`
+- `createdAt: new Date().toISOString()`
+
+If MongoDB is unavailable, the API returns the record with:
+
+- `savedToHistory: false`
+- `_storage: "unavailable"`
+
+### Read path (fetch)
+
+`GET /api/call-history` (`src/app/api/call-history/route.ts`):
+
+- Reads, sorts by `createdAt desc`, limits to 500
+- Strips `_id` and `createdAt` before returning `CallRecord[]`
+
+## Data model (CallRecord)
+
+The shared data contract is `CallRecord` in `src/types/call-records.ts`.
+
+Key fields you’ll see in Call History:
+
+- `call_summary`: identifiers + metadata (includes demo-only `spoof_persona` / `spoof_intent`)
+- `summary`: narrative summary (often a JSON string if the summary agent returned structured JSON)
+- `action_items`, `next_steps`, `customer_health`
+- `stored_transcript`: saved transcript string
+
+## UI / CSS stack
+
+### Tailwind + theme
+
+- **Tailwind CSS v4** is loaded via `@import "tailwindcss";` in `src/app/globals.css`
+- `src/app/globals.css` defines the brand theme (CSS variables for palette, shadows, radius) and a “liquid glass” visual system
+- PostCSS is configured in `postcss.config.mjs` (`@tailwindcss/postcss`)
+
+### shadcn/ui
+
+- shadcn/ui is configured by `components.json` and components live in `src/components/ui/*`
+- Uses Radix UI primitives + `cn()` helper (`src/lib/utils.ts`)
+- Icons: `lucide-react`
+
+## Running the prototype
 
 ### Prerequisites
 
-- Node.js 18+ 
-- npm or yarn
+- Node.js 18+
+- npm
 
-### Installation
+### Install / run
 
-1. Navigate to the project directory:
-```bash
-cd banking-charge-dispute-app
-```
-
-2. Install dependencies:
 ```bash
 npm install
-```
-
-3. Run the development server:
-```bash
 npm run dev
 ```
 
-4. Open [http://localhost:3000](http://localhost:3000) in your browser
+Open `http://localhost:3000`.
 
-## Project Structure
+### Environment variables (AI + Mongo)
 
-```
-banking-charge-dispute-app/
-├── src/
-│   ├── app/
-│   │   ├── layout.tsx              # Root layout with theme provider
-│   │   ├── page.tsx                # Chat Assistant (main page)
-│   │   ├── mail-assistant/
-│   │   │   └── page.tsx            # Mail Assistant page
-│   │   ├── phone-assistant/
-│   │   │   └── page.tsx            # Phone Assistant page
-│   │   ├── disputes/
-│   │   │   └── page.tsx            # Disputes dashboard
-│   │   ├── observability/
-│   │   │   └── page.tsx            # Observability dashboard
-│   │   └── globals.css             # Global styles + Liquid Glass UI
-│   ├── components/
-│   │   ├── chat/                   # Chat UI components
-│   │   ├── mail-assistant/
-│   │   │   └── MailAssistant.tsx   # Email interface
-│   │   ├── phone-assistant/
-│   │   │   └── PhoneAssistant.tsx  # Voice call interface
-│   │   ├── disputes/
-│   │   │   └── DisputesDashboard.tsx
-│   │   ├── observability/
-│   │   │   └── ObservabilityDashboard.tsx
-│   │   ├── agent-view/             # Agent activity tracking
-│   │   ├── AppSidebar.tsx          # Navigation sidebar
-│   │   └── ui/                     # shadcn/ui components
-│   ├── hooks/
-│   │   ├── useVoiceChat.ts         # WebSocket voice streaming hook
-│   │   └── ...                     # Other custom hooks
-│   ├── lib/
-│   │   ├── api.ts                  # Agent API service wrapper
-│   │   └── utils.ts                # Utility functions
-│   └── types/
-│       └── index.ts                # TypeScript type definitions
-├── vercel.json                     # Vercel deployment config
-├── package.json
-├── tsconfig.json
-├── next.config.ts
-└── README.md
-```
+Copy `.env.example` to `.env` and set what you need.
 
-## Architecture
+Common AI variables used across the app:
 
-### Core Constraints
+- `NEXT_PUBLIC_LYZR_API_BASE_URL` (client-side agent base URL)
+- `LYZR_API_BASE_URL` (server-side for `/api/chat-assist`)
+- `LYZR_API_KEY`
+- `LYZR_USER_ID`
+- `LYZR_RESOLUTION_AGENT_ID`
+- `LYZR_SUMMARY_AGENT_ID`
+- `LYZR_SPOOF_AGENT_ID`
+- `LYZR_CHAT_ASSIST_AGENT_ID`
 
-1. **Single API Endpoint**: The frontend ONLY communicates with the Dispute Orchestrator Agent API
-2. **No Direct Sub-Agent Calls**: The frontend never directly calls:
-   - Transaction Identification Agent
-   - Fraud Screening Agent
-   - Dispute De-escalation Agent
-3. **Orchestrator Pattern**: The Dispute Orchestrator Agent internally coordinates all sub-agents
-4. **Dumb Client**: The frontend only sends user text and renders assistant replies
+Persistence:
 
-### API Integration
+- `MONGODB_URI`
+- `MONGODB_DB_NAME`
 
-The app uses the Dispute Orchestrator Agent API endpoint:
-- **Base URL**: `https://agent-prod.studio.lyzr.ai/v3/inference/chat/`
-- **Method**: POST
-- **Headers**: 
-  - `Content-Type: application/json`
-  - `x-api-key: [API_KEY]`
+Security note: this repo contains **hardcoded demo defaults** for some AI configuration in `src/lib/ur-agents.ts` and `src/app/api/chat-assist/route.ts` so the prototype runs without setup. Treat these as placeholders and rotate/remove them for anything beyond internal demos.
 
-### State Management
+## Demo flow (suggested talk track)
 
-- **Session ID**: Persisted in localStorage per chat session
-- **Messages**: Array of message objects with role, content, and timestamp
-- **Observability Data**: Stored in localStorage for dashboard access
-- **Resolution State**: Managed for fraud/dispute outcomes
+1. **Dashboard / Analytics**
+   - Show populated KPIs and charts (seeded demo data).
+2. **Start Co‑Pilot**
+   - Start a call and point out persona + intent cycling.
+   - Highlight Live Transcript + AI Suggestions (sentiment, next best action, cross-sell).
+   - Show Customer Info loading states (waiting → fetching → full profile after customer speaks).
+   - Ask a quick Chat Assist question to show structured guidance.
+3. **End call**
+   - Point out “Processing chat and creating summary…”
+4. **Call History**
+   - Open the newest record and review the summary + stored transcript.
 
-## Usage
+## Project structure (functions and folders)
 
-### Chat Interface
-
-1. The app opens with a greeting message from the banking assistant
-2. Users can:
-   - Click quick action buttons (sends predefined messages)
-   - Type freely in the input box
-3. All messages are sent to the Dispute Orchestrator Agent
-4. Responses are rendered as assistant messages
-
-### Quick Actions
-
-- **Show last transaction**: Requests the most recent transaction
-- **Show last 5 transactions**: Requests the last 5 transactions
-- **Dispute a charge**: Initiates a dispute flow
-
-### Resolution Cards
-
-When a dispute reaches a resolution state, a card appears showing:
-- Transaction ID
-- Status (Fraud Confirmed, Not Fraud, Case Resolved, etc.)
-- Card Status (if applicable)
-- Action buttons (e.g., "Forward to Human Agent")
-
-### Observability Dashboard
-
-Navigate to `/observability` to view:
-- Message timeline
-- Agent latency metrics
-- Step-by-step breakdown
-- Final outcome visualization
-- Charts and analytics
-
-## Configuration
-
-### API Configuration
-
-Edit `src/lib/api.ts` to update:
-- API endpoint URL
-- API key
-- User ID
-- Agent ID
-
-### Theme
-
-The app supports light/dark mode. Toggle using the theme button in the top-right corner.
-
-## Deploy to Vercel
-
-The app is ready for [Vercel](https://vercel.com) deployment.
-
-### If the repo root is this folder (`banking-charge-dispute-app`)
-
-1. Push the repo to GitHub/GitLab/Bitbucket.
-2. In [Vercel](https://vercel.com/new), import the repository.
-3. Leave **Root Directory** empty (or `.`).
-4. Add any [environment variables](#environment-variables) in Project Settings → Environment Variables.
-5. Deploy. Vercel will run `npm install` and `npm run build` automatically.
-
-### If the repo root is the parent (e.g. `Accenture Banking Charge Dispute`)
-
-1. In Vercel, import the repository.
-2. Set **Root Directory** to `banking-charge-dispute-app` (or the folder that contains `package.json` and `next.config.ts`).
-3. Add environment variables if needed.
-4. Deploy.
-
-### Environment variables (optional)
-
-The app works with default API configuration. For production you can override via env vars if you later move keys out of code:
-
-| Variable | Description |
-|----------|-------------|
-| `NEXT_PUBLIC_APP_URL` | Full URL of the deployed app (e.g. `https://your-app.vercel.app`) for canonical URLs or redirects |
-
-No env vars are required for the current build; API keys are configured in `src/lib/api.ts` and in the Phone Assistant component.
-
-## Development
-
-### Build for Production
-
-```bash
-npm run build
+```text
+src/
+  app/
+    api/                 # Next.js route handlers (server)
+      call-history/      # Mongo read/write for call records
+      chat-assist/       # Agent-backed structured Q&A proxy
+      customer-records/  # Demo CRM-like API
+    copilot/             # Co-Pilot page (call simulation)
+    call-history/        # Call history page
+    analytics/           # Analytics page
+    reports/             # Reports page
+    integrations/        # Integrations page
+    globals.css          # Tailwind imports + global theme tokens
+  components/
+    copilot/             # Transcript, suggestions, customer info, chat assist UI
+    call-history/        # Call history UI components
+    ui/                  # shadcn/ui components
+    AppSidebar.tsx       # Sidebar navigation
+  lib/
+    ur-agents.ts         # All agent wrappers + summary fallback
+    mongodb.ts           # Mongo client + call history collection getter
+  mock/                  # Seed/demo data and scenarios
+  types/
+    call-records.ts      # Shared TypeScript contracts
+docs/
+  united-rentals-aerial-lift-specs.md  # Demo spec / KB reference
 ```
 
-### Start Production Server
+## Troubleshooting & key notes
 
-```bash
-npm start
-```
+- **Call history not saved**: Mongo is optional. If `MONGODB_URI` is unset or connection fails, the API returns `savedToHistory: false` and the UI still shows the summary for the current call.
+- **Chat Assist shows partial fields**: the API returns action steps and caveats too, but the UI intentionally renders only Summary + Key points.
+- **Agent responses not parseable**: `src/lib/ur-agents.ts` normalizes varied agent response shapes and falls back to local heuristics for summaries when needed.
 
-### Linting
 
-```bash
-npm run lint
-```
-
-## Important Notes
-
-- This is a **prototype/demo** application for enterprise client presentations
-- The frontend is intentionally "dumb" - it does not make business logic decisions
-- All fraud detection, transaction identification, and dispute logic is handled by the backend agent
-- The observability dashboard is for demo purposes only
-- Session data is stored in localStorage (not suitable for production)
-
-## License
-
-Private - For Accenture Banking Charge Dispute project
